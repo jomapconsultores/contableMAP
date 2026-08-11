@@ -283,18 +283,35 @@ const TIPOS_DOC = [
 
 const EXT_OK = ["pdf", "png", "jpg", "jpeg", "webp", "gif", "xml", "csv", "txt"];
 
+type EstadoItem = "pendiente" | "subiendo" | "procesando" | "listo" | "error";
+
+interface ItemCarga {
+  id: string;
+  file: File;
+  estado: EstadoItem;
+  mensaje: string;
+}
+
+const ETIQUETA_ESTADO: Record<EstadoItem, string> = {
+  pendiente: "en cola",
+  subiendo: "subiendo…",
+  procesando: "procesando…",
+  listo: "listo",
+  error: "error",
+};
+
 function PorDocumento() {
   const [tipo, setTipo] = useState(TIPOS_DOC[0].valor);
   const [cuentaId, setCuentaId] = useState(""); // "" = que la IA la detecte
   const [cuentas, setCuentas] = useState<CuentaFinanciera[]>([]);
-  const [archivo, setArchivo] = useState<File | null>(null);
+  const [items, setItems] = useState<ItemCarga[]>([]);
   const [arrastrando, setArrastrando] = useState(false);
-  const [estado, setEstado] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const esExtracto = tipo.startsWith("ESTADO_");
+  const pendientes = items.filter((i) => i.estado === "pendiente" || i.estado === "error").length;
 
   useEffect(() => {
     fetch("/api/cuentas")
@@ -303,68 +320,93 @@ function PorDocumento() {
       .catch(() => undefined);
   }, []);
 
-  function aceptar(f: File | null | undefined) {
-    if (!f) return;
-    const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
-    if (!EXT_OK.includes(ext)) {
-      setError(`Formato no admitido: .${ext}. Usa PDF, imagen, XML o CSV.`);
-      return;
+  /** Añade archivos a la cola validando su formato; avisa de los rechazados. */
+  function agregar(lista: FileList | File[] | null | undefined) {
+    if (!lista) return;
+    const nuevos: ItemCarga[] = [];
+    const rechazados: string[] = [];
+
+    for (const f of Array.from(lista)) {
+      const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
+      if (EXT_OK.includes(ext)) {
+        nuevos.push({ id: crypto.randomUUID(), file: f, estado: "pendiente", mensaje: "" });
+      } else {
+        rechazados.push(f.name);
+      }
     }
-    setError(null);
-    setArchivo(f);
+
+    if (nuevos.length) setItems((prev) => [...prev, ...nuevos]);
+    setError(
+      rechazados.length
+        ? `Formato no admitido: ${rechazados.join(", ")}. Solo PDF, imagen, XML o CSV.`
+        : null,
+    );
+  }
+
+  function actualizar(id: string, patch: Partial<ItemCarga>) {
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+  }
+
+  function quitar(id: string) {
+    setItems((prev) => prev.filter((i) => i.id !== id));
   }
 
   function alSoltar(e: React.DragEvent) {
     e.preventDefault();
     setArrastrando(false);
-    aceptar(e.dataTransfer.files?.[0]);
+    agregar(e.dataTransfer.files);
   }
 
-  async function subir() {
-    if (!archivo) return;
-
+  /** Sube y procesa cada documento en secuencia; un fallo no detiene al resto. */
+  async function procesarTodo() {
     setOcupado(true);
     setError(null);
-    setEstado("Subiendo…");
 
-    try {
-      const form = new FormData();
-      form.append("archivo", archivo);
-      form.append("tipo", tipo);
-      if (cuentaId) form.append("cuenta_id", cuentaId);
+    // Se congela la lista de objetivos al inicio: lo pendiente o lo que quedó
+    // en error de una tanda anterior.
+    const objetivos = items.filter((i) => i.estado === "pendiente" || i.estado === "error");
 
-      const subida = await fetch("/api/documentos", { method: "POST", body: form });
-      const jsonSubida = await subida.json();
-      if (!jsonSubida.ok) throw new Error(jsonSubida.error);
+    for (const item of objetivos) {
+      try {
+        actualizar(item.id, { estado: "subiendo", mensaje: "" });
 
-      setEstado(
-        esExtracto && !cuentaId
-          ? "Leyendo el documento e identificando la cuenta con IA… puede tardar un minuto."
-          : "Leyendo el documento con IA… puede tardar un minuto.",
-      );
+        const form = new FormData();
+        form.append("archivo", item.file);
+        form.append("tipo", tipo);
+        if (cuentaId) form.append("cuenta_id", cuentaId);
 
-      const proceso = await fetch(`/api/documentos/${jsonSubida.datos.id}/procesar`, {
-        method: "POST",
-      });
-      const jsonProceso = await proceso.json();
-      if (!jsonProceso.ok) throw new Error(jsonProceso.error);
+        const subida = await fetch("/api/documentos", { method: "POST", body: form });
+        const jsonSubida = await subida.json();
+        if (!jsonSubida.ok) throw new Error(jsonSubida.error);
 
-      setEstado(jsonProceso.datos.resumen);
-      setArchivo(null);
-    } catch (e) {
-      setEstado(null);
-      setError(e instanceof Error ? e.message : "Error inesperado");
-    } finally {
-      setOcupado(false);
+        actualizar(item.id, { estado: "procesando" });
+
+        const proceso = await fetch(`/api/documentos/${jsonSubida.datos.id}/procesar`, {
+          method: "POST",
+        });
+        const jsonProceso = await proceso.json();
+        if (!jsonProceso.ok) throw new Error(jsonProceso.error);
+
+        actualizar(item.id, { estado: "listo", mensaje: jsonProceso.datos.resumen });
+      } catch (e) {
+        actualizar(item.id, {
+          estado: "error",
+          mensaje: e instanceof Error ? e.message : "Error inesperado",
+        });
+      }
     }
+
+    setOcupado(false);
   }
+
+  const hayListos = items.some((i) => i.estado === "listo");
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-5">
       <h2 className="font-medium">Por documento</h2>
       <p className="mt-1 text-sm text-slate-500">
-        PDF, imagen, XML o CSV. Los estados de cuenta se cargan línea por línea
-        y se clasifican en el momento.
+        PDF, imagen, XML o CSV. Puedes soltar varios estados de cuenta a la vez:
+        se procesan uno tras otro y cada uno se clasifica en el momento.
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -373,7 +415,8 @@ function PorDocumento() {
           <select
             value={tipo}
             onChange={(e) => setTipo(e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            disabled={ocupado}
+            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"
           >
             {TIPOS_DOC.map((t) => (
               <option key={t.valor} value={t.valor}>
@@ -381,6 +424,9 @@ function PorDocumento() {
               </option>
             ))}
           </select>
+          <span className="mt-1 block text-xs text-slate-400">
+            Se aplica a todos los documentos de la tanda.
+          </span>
         </label>
 
         {esExtracto && (
@@ -389,7 +435,8 @@ function PorDocumento() {
             <select
               value={cuentaId}
               onChange={(e) => setCuentaId(e.target.value)}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              disabled={ocupado}
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"
             >
               <option value="">Detectar automáticamente (IA)</option>
               {cuentas.map((c) => (
@@ -399,72 +446,139 @@ function PorDocumento() {
               ))}
             </select>
             <span className="mt-1 block text-xs text-slate-400">
-              Déjalo así y la IA reconoce la cuenta por la institución y el
-              número del estado de cuenta. Si no existe, la crea.
+              Con detección automática, cada estado de cuenta se asigna a su
+              cuenta por separado según lo que lea la IA.
             </span>
           </label>
         )}
       </div>
 
-      {/* Zona de arrastrar y soltar, también clicable */}
+      {/* Zona de arrastrar y soltar (varios archivos), también clicable */}
       <div
         onDragOver={(e) => {
           e.preventDefault();
-          setArrastrando(true);
+          if (!ocupado) setArrastrando(true);
         }}
         onDragLeave={() => setArrastrando(false)}
-        onDrop={alSoltar}
-        onClick={() => inputRef.current?.click()}
+        onDrop={(e) => !ocupado && alSoltar(e)}
+        onClick={() => !ocupado && inputRef.current?.click()}
         role="button"
         tabIndex={0}
-        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && inputRef.current?.click()}
-        className={`mt-3 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-8 text-center transition-colors ${
+        onKeyDown={(e) =>
+          !ocupado && (e.key === "Enter" || e.key === " ") && inputRef.current?.click()
+        }
+        className={`mt-3 flex flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-8 text-center transition-colors ${
+          ocupado ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+        } ${
           arrastrando
             ? "border-emerald-500 bg-emerald-50"
             : "border-slate-300 bg-slate-50 hover:border-emerald-400 hover:bg-slate-100"
         }`}
       >
-        {archivo ? (
-          <>
-            <span className="text-sm font-medium text-slate-700">{archivo.name}</span>
-            <span className="mt-0.5 text-xs text-slate-400">
-              {(archivo.size / 1024).toFixed(0)} KB · clic o suelta otro para cambiarlo
-            </span>
-          </>
-        ) : (
-          <>
-            <span className="text-sm text-slate-600">
-              Arrastra el documento aquí o haz clic para elegirlo
-            </span>
-            <span className="mt-0.5 text-xs text-slate-400">PDF, imagen, XML o CSV</span>
-          </>
-        )}
+        <span className="text-sm text-slate-600">
+          Arrastra uno o varios documentos aquí o haz clic para elegirlos
+        </span>
+        <span className="mt-0.5 text-xs text-slate-400">PDF, imagen, XML o CSV</span>
       </div>
 
       <input
         ref={inputRef}
         type="file"
+        multiple
         accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.xml,.csv,.txt"
-        onChange={(e) => aceptar(e.target.files?.[0])}
+        onChange={(e) => {
+          agregar(e.target.files);
+          e.target.value = ""; // permite volver a elegir el mismo archivo
+        }}
         className="hidden"
       />
 
-      <button
-        onClick={subir}
-        disabled={ocupado || !archivo}
-        className="mt-3 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-      >
-        {ocupado ? "Procesando…" : "Subir y procesar"}
-      </button>
+      {items.length > 0 && (
+        <ul className="mt-3 divide-y divide-slate-100 rounded-md border border-slate-200">
+          {items.map((it) => (
+            <li key={it.id} className="flex items-start gap-3 px-3 py-2 text-sm">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate font-medium">{it.file.name}</span>
+                  <span className="shrink-0 text-xs text-slate-400">
+                    {(it.file.size / 1024).toFixed(0)} KB
+                  </span>
+                </div>
+                {it.mensaje && (
+                  <div
+                    className={`mt-0.5 text-xs ${
+                      it.estado === "error" ? "text-rose-700" : "text-slate-500"
+                    }`}
+                  >
+                    {it.mensaje}
+                  </div>
+                )}
+              </div>
+              <EstadoBadge estado={it.estado} />
+              {!ocupado && it.estado !== "procesando" && it.estado !== "subiendo" && (
+                <button
+                  onClick={() => quitar(it.id)}
+                  className="shrink-0 text-xs text-slate-400 hover:text-rose-600"
+                  aria-label="Quitar"
+                >
+                  ✕
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          onClick={procesarTodo}
+          disabled={ocupado || pendientes === 0}
+          className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+        >
+          {ocupado
+            ? "Procesando…"
+            : pendientes > 1
+              ? `Subir y procesar ${pendientes} documentos`
+              : "Subir y procesar"}
+        </button>
+
+        {hayListos && !ocupado && (
+          <button
+            onClick={() => setItems((prev) => prev.filter((i) => i.estado !== "listo"))}
+            className="text-sm text-slate-500 underline hover:text-slate-700"
+          >
+            Quitar los ya procesados
+          </button>
+        )}
+        {items.length > 0 && !ocupado && (
+          <button
+            onClick={() => setItems([])}
+            className="text-sm text-slate-500 underline hover:text-slate-700"
+          >
+            Limpiar todo
+          </button>
+        )}
+      </div>
 
       {error && (
         <p className="mt-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>
       )}
-      {estado && (
-        <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-          {estado}
-        </p>
-      )}
     </section>
+  );
+}
+
+function EstadoBadge({ estado }: { estado: EstadoItem }) {
+  const clase =
+    estado === "listo"
+      ? "bg-emerald-100 text-emerald-800"
+      : estado === "error"
+        ? "bg-rose-100 text-rose-800"
+        : estado === "pendiente"
+          ? "bg-slate-100 text-slate-600"
+          : "bg-sky-100 text-sky-800";
+  return (
+    <span className={`shrink-0 rounded px-2 py-0.5 text-xs ${clase}`}>
+      {ETIQUETA_ESTADO[estado]}
+    </span>
   );
 }
