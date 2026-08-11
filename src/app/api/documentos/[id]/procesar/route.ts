@@ -64,12 +64,14 @@ export async function POST(
       let resumen = "";
       let uso: Uso;
       let extraccion: unknown;
+      let duplicado = false;
 
       if (ES_EXTRACTO.includes(doc.tipo)) {
         const r = await procesarExtracto(sb, entidadId, doc, base64, mime);
         resumen = r.resumen;
         uso = r.uso;
         extraccion = r.extraccion;
+        duplicado = r.duplicado;
       } else if (doc.tipo === "FACTURA_COMPRA" || doc.tipo === "FACTURA_VENTA") {
         const r = await procesarFactura(sb, entidadId, doc, base64, mime);
         resumen = r.resumen;
@@ -101,7 +103,7 @@ export async function POST(
 
       await registrarIA(sb, entidadId, userId, "EXTRACCION_DOC", uso, id);
 
-      return { id, estado: "EXTRAIDO", resumen };
+      return { id, estado: "EXTRAIDO", resumen, duplicado };
     } catch (e) {
       const mensaje = e instanceof Error ? e.message : "Error desconocido";
       await sb
@@ -237,15 +239,20 @@ async function procesarExtracto(
     .eq("id", doc.id);
 
   const omitidas = datos.movimientos.length - sinFecha - nuevas.length;
-  const resumen =
-    `${datos.movimientos.length} movimientos leídos · ${nuevas.length} nuevos · ` +
-    `${clasificados} clasificados automáticamente` +
-    (omitidas > 0 ? ` · ${omitidas} ya existían` : "") +
-    (sinFecha > 0 ? ` · ${sinFecha} descartados sin fecha` : "") +
-    cuentaResuelta +
-    (datos.observaciones.length ? ` · ${datos.observaciones.length} observaciones` : "");
 
-  return { resumen, uso, extraccion: datos };
+  // Aunque el archivo no fuera idéntico byte a byte, si ninguno de sus
+  // movimientos es nuevo, esta información ya estaba cargada.
+  const resumen =
+    nuevas.length === 0 && omitidas > 0
+      ? `Este estado de cuenta ya estaba cargado: sus ${omitidas} movimientos ya existían${cuentaResuelta}. No se agregó nada nuevo.`
+      : `${datos.movimientos.length} movimientos leídos · ${nuevas.length} nuevos · ` +
+        `${clasificados} clasificados automáticamente` +
+        (omitidas > 0 ? ` · ${omitidas} ya existían` : "") +
+        (sinFecha > 0 ? ` · ${sinFecha} descartados sin fecha` : "") +
+        cuentaResuelta +
+        (datos.observaciones.length ? ` · ${datos.observaciones.length} observaciones` : "");
+
+  return { resumen, uso, extraccion: datos, duplicado: nuevas.length === 0 && omitidas > 0 };
 }
 
 async function procesarFactura(

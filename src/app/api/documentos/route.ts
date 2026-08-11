@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { contexto, manejar, ErrorPeticion } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -53,6 +54,38 @@ export async function POST(request: Request) {
 
     const { sb, userId, entidadId } = await contexto(entidad);
 
+    // Huella del contenido: identifica el archivo exacto con independencia del
+    // nombre. Si ya se subió y se procesó, se avisa y no se vuelve a subir ni a
+    // pagar otra extracción con IA.
+    const bytes = Buffer.from(await archivo.arrayBuffer());
+    const contenidoHash = createHash("sha256").update(bytes).digest("hex");
+
+    const { data: previo } = await sb
+      .from("documentos")
+      .select("id, nombre_archivo, resumen, created_at")
+      .eq("entidad_id", entidadId)
+      .eq("contenido_hash", contenidoHash)
+      .in("estado", ["EXTRAIDO", "CONTABILIZADO"])
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (previo) {
+      const fecha = new Date(previo.created_at as string).toLocaleDateString("es-EC", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
+      return {
+        duplicado: true,
+        id: previo.id,
+        mensaje:
+          `Este documento ya se subió el ${fecha} («${previo.nombre_archivo}»). ` +
+          `No se procesa de nuevo.` +
+          (previo.resumen ? ` En su momento: ${previo.resumen}` : ""),
+      };
+    }
+
     // El primer segmento debe ser el id del usuario: así lo exige la política
     // de almacenamiento.
     const limpio = archivo.name.replace(/[^\w.\-]+/g, "_").slice(-120);
@@ -60,7 +93,7 @@ export async function POST(request: Request) {
 
     const { error: errSubida } = await sb.storage
       .from("documentos")
-      .upload(ruta, archivo, {
+      .upload(ruta, bytes, {
         contentType: archivo.type || "application/octet-stream",
         upsert: false,
       });
@@ -76,6 +109,7 @@ export async function POST(request: Request) {
         storage_path: ruta,
         mime_type: archivo.type || null,
         tamano_bytes: archivo.size,
+        contenido_hash: contenidoHash,
         cuenta_id: cuentaId,
         estado: "PENDIENTE",
         created_by: userId,
@@ -88,7 +122,7 @@ export async function POST(request: Request) {
       throw new ErrorPeticion(`No se pudo registrar el documento: ${error.message}`, 500);
     }
 
-    return data;
+    return { ...data, duplicado: false };
   });
 }
 

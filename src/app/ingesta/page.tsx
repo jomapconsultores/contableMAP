@@ -283,7 +283,13 @@ const TIPOS_DOC = [
 
 const EXT_OK = ["pdf", "png", "jpg", "jpeg", "webp", "gif", "xml", "csv", "txt"];
 
-type EstadoItem = "pendiente" | "subiendo" | "procesando" | "listo" | "error";
+type EstadoItem =
+  | "pendiente"
+  | "subiendo"
+  | "procesando"
+  | "listo"
+  | "duplicado"
+  | "error";
 
 interface ItemCarga {
   id: string;
@@ -297,6 +303,7 @@ const ETIQUETA_ESTADO: Record<EstadoItem, string> = {
   subiendo: "subiendo…",
   procesando: "procesando…",
   listo: "listo",
+  duplicado: "ya subido",
   error: "error",
 };
 
@@ -379,6 +386,12 @@ function PorDocumento() {
         const jsonSubida = await subida.json();
         if (!jsonSubida.ok) throw new Error(jsonSubida.error);
 
+        // El mismo archivo ya se subió antes: no se procesa de nuevo.
+        if (jsonSubida.datos.duplicado) {
+          actualizar(item.id, { estado: "duplicado", mensaje: jsonSubida.datos.mensaje });
+          continue;
+        }
+
         actualizar(item.id, { estado: "procesando" });
 
         const proceso = await fetch(`/api/documentos/${jsonSubida.datos.id}/procesar`, {
@@ -387,7 +400,11 @@ function PorDocumento() {
         const jsonProceso = await proceso.json();
         if (!jsonProceso.ok) throw new Error(jsonProceso.error);
 
-        actualizar(item.id, { estado: "listo", mensaje: jsonProceso.datos.resumen });
+        // Archivo distinto pero con movimientos ya cargados.
+        actualizar(item.id, {
+          estado: jsonProceso.datos.duplicado ? "duplicado" : "listo",
+          mensaje: jsonProceso.datos.resumen,
+        });
       } catch (e) {
         actualizar(item.id, {
           estado: "error",
@@ -399,7 +416,7 @@ function PorDocumento() {
     setOcupado(false);
   }
 
-  const hayListos = items.some((i) => i.estado === "listo");
+  const hayResueltos = items.some((i) => i.estado === "listo" || i.estado === "duplicado");
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-5">
@@ -542,9 +559,13 @@ function PorDocumento() {
               : "Subir y procesar"}
         </button>
 
-        {hayListos && !ocupado && (
+        {hayResueltos && !ocupado && (
           <button
-            onClick={() => setItems((prev) => prev.filter((i) => i.estado !== "listo"))}
+            onClick={() =>
+              setItems((prev) =>
+                prev.filter((i) => i.estado !== "listo" && i.estado !== "duplicado"),
+              )
+            }
             className="text-sm text-slate-500 underline hover:text-slate-700"
           >
             Quitar los ya procesados
@@ -573,9 +594,11 @@ function EstadoBadge({ estado }: { estado: EstadoItem }) {
       ? "bg-emerald-100 text-emerald-800"
       : estado === "error"
         ? "bg-rose-100 text-rose-800"
-        : estado === "pendiente"
-          ? "bg-slate-100 text-slate-600"
-          : "bg-sky-100 text-sky-800";
+        : estado === "duplicado"
+          ? "bg-amber-100 text-amber-900"
+          : estado === "pendiente"
+            ? "bg-slate-100 text-slate-600"
+            : "bg-sky-100 text-sky-800";
   return (
     <span className={`shrink-0 rounded px-2 py-0.5 text-xs ${clase}`}>
       {ETIQUETA_ESTADO[estado]}
