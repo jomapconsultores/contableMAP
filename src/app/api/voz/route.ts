@@ -3,6 +3,7 @@ import { consultar } from "@/lib/ia";
 import { MovimientoDictado } from "@/lib/esquemas";
 import { SISTEMA_VOZ } from "@/lib/prompts";
 import { contabilizarCompra, contabilizarVenta } from "@/lib/contabilizacion";
+import { aISO, aISOoHoy } from "@/lib/fechas";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -82,7 +83,7 @@ async function registrar(
   entidadId: string,
   d: Dictado,
 ) {
-  const fecha = d.fecha ?? HOY();
+  const fecha = aISOoHoy(d.fecha);
   const total = d.monto_total!;
   const iva = d.iva ?? 0;
   const base = d.base_imponible ?? Number((total - iva).toFixed(2));
@@ -135,7 +136,7 @@ async function registrar(
         forma_pago: d.forma_pago,
         cuenta_financiera_id: cuentaFinanciera,
         a_credito: d.a_credito,
-        fecha_vencimiento: d.fecha_vencimiento,
+        fecha_vencimiento: aISO(d.fecha_vencimiento),
       })
       .select("id")
       .single();
@@ -164,7 +165,7 @@ async function registrar(
       forma_pago: d.forma_pago,
       cuenta_financiera_id: cuentaFinanciera,
       a_credito: d.a_credito,
-      fecha_vencimiento: d.fecha_vencimiento,
+      fecha_vencimiento: aISO(d.fecha_vencimiento),
     })
     .select("id")
     .single();

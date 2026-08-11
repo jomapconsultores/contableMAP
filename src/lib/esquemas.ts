@@ -11,9 +11,13 @@ import { z } from "zod";
  */
 
 const importe = z.number();
-const fechaISO = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "Se espera una fecha AAAA-MM-DD");
+
+// El modelo debe devolver AAAA-MM-DD, pero los estados de cuenta ecuatorianos
+// usan DD/MM/AAAA y a veces se cuela. Se acepta cualquier fecha con pinta de
+// fecha y la normalización real a ISO se hace con `aISO` al insertar en la base
+// (ver src/lib/fechas.ts): rechazar aquí por formato tiraría extracciones
+// enteras por un guion en vez de una barra.
+const fechaISO = z.string().min(6, "Se espera una fecha");
 
 // ---------------------------------------------------------------------------
 // Estados de cuenta: tarjeta de crédito, banco, cooperativa

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { aISO } from "@/lib/fechas";
 import { contexto, manejar, registrarIA, ErrorPeticion } from "@/lib/api";
 import { clasificarLote, normalizarComercio } from "@/lib/clasificacion";
 import {
@@ -136,19 +137,37 @@ async function procesarExtracto(
     );
   }
 
-  const filas = datos.movimientos.map((m) => ({
-    entidad_id: entidadId,
-    documento_id: doc.id,
-    cuenta_id: doc.cuenta_id as string,
-    fecha: m.fecha,
-    descripcion: m.descripcion,
-    comercio: m.comercio ? normalizarComercio(m.comercio) : null,
-    referencia: m.referencia,
-    naturaleza: m.naturaleza,
-    monto: m.monto,
-    moneda: m.moneda ?? "USD",
-    hash_linea: huella(m.fecha, m.descripcion, m.monto, m.naturaleza),
-  }));
+  // La fecha se normaliza a ISO aquí; un movimiento sin fecha reconocible se
+  // descarta en vez de romper toda la carga, y se avisa cuántos.
+  let sinFecha = 0;
+  const filas = datos.movimientos
+    .map((m) => {
+      const fecha = aISO(m.fecha);
+      if (!fecha) {
+        sinFecha += 1;
+        return null;
+      }
+      return {
+        entidad_id: entidadId,
+        documento_id: doc.id,
+        cuenta_id: doc.cuenta_id as string,
+        fecha,
+        descripcion: m.descripcion,
+        comercio: m.comercio ? normalizarComercio(m.comercio) : null,
+        referencia: m.referencia,
+        naturaleza: m.naturaleza,
+        monto: m.monto,
+        moneda: m.moneda ?? "USD",
+        hash_linea: huella(fecha, m.descripcion, m.monto, m.naturaleza),
+      };
+    })
+    .filter((f): f is NonNullable<typeof f> => f !== null);
+
+  if (filas.length === 0) {
+    throw new ErrorPeticion(
+      "No se pudo interpretar la fecha de ningún movimiento. Revisa que el documento sea legible.",
+    );
+  }
 
   // ignoreDuplicates deja pasar sin error las líneas ya cargadas en otra
   // corrida del mismo extracto.
@@ -196,14 +215,18 @@ async function procesarExtracto(
 
   await sb
     .from("documentos")
-    .update({ periodo_desde: datos.periodo_desde, periodo_hasta: datos.periodo_hasta })
+    .update({
+      periodo_desde: aISO(datos.periodo_desde),
+      periodo_hasta: aISO(datos.periodo_hasta),
+    })
     .eq("id", doc.id);
 
-  const omitidas = datos.movimientos.length - nuevas.length;
+  const omitidas = datos.movimientos.length - sinFecha - nuevas.length;
   const resumen =
     `${datos.movimientos.length} movimientos leídos · ${nuevas.length} nuevos · ` +
     `${clasificados} clasificados automáticamente` +
     (omitidas > 0 ? ` · ${omitidas} ya existían` : "") +
+    (sinFecha > 0 ? ` · ${sinFecha} descartados sin fecha` : "") +
     (datos.observaciones.length ? ` · ${datos.observaciones.length} observaciones` : "");
 
   return { resumen, uso, extraccion: datos };
@@ -223,10 +246,17 @@ async function procesarFactura(
     esCompra ? "FACTURA_COMPRA" : "FACTURA_VENTA",
   );
 
+  const fecha = aISO(datos.fecha);
+  if (!fecha) {
+    throw new ErrorPeticion(
+      "No se pudo interpretar la fecha del comprobante. Regístralo manualmente.",
+    );
+  }
+
   const comun = {
     entidad_id: entidadId,
     documento_id: doc.id,
-    fecha: datos.fecha,
+    fecha,
     tipo_comprobante: datos.tipo_comprobante,
     establecimiento: datos.establecimiento,
     punto_emision: datos.punto_emision,
@@ -283,7 +313,7 @@ async function procesarFactura(
         comercio: datos.nombre_emisor,
         ruc: datos.ruc_emisor,
         monto: datos.total,
-        fecha: datos.fecha,
+        fecha,
       },
     ]);
 
