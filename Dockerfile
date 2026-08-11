@@ -33,7 +33,11 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
-RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
+# curl lo usa el healthcheck que inyecta Coolify, que ignora la instrucción
+# HEALTHCHECK de más abajo. Sin él cae a busybox wget, que resuelve `localhost`
+# como ::1 y no conecta, porque el servidor solo escucha en IPv4.
+RUN apk add --no-cache curl \
+ && addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
