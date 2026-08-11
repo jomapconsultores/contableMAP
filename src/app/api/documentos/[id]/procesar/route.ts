@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { aISO } from "@/lib/fechas";
+import { identificarCuenta } from "@/lib/cuentas";
 import { contexto, manejar, registrarIA, ErrorPeticion } from "@/lib/api";
 import { clasificarLote, normalizarComercio } from "@/lib/clasificacion";
 import {
@@ -123,18 +124,32 @@ async function procesarExtracto(
   base64: string,
   mime: string,
 ) {
-  if (!doc.cuenta_id) {
-    throw new ErrorPeticion(
-      "Asigna una cuenta financiera al documento antes de procesarlo: sin ella no se sabe a qué cuenta pertenecen los movimientos.",
-    );
-  }
-
   const { datos, uso } = await extraerExtracto(base64, mime, doc.tipo as TipoDocumento);
 
   if (datos.movimientos.length === 0) {
     throw new ErrorPeticion(
       "No se reconoció ningún movimiento en el documento. Revisa que el archivo sea legible.",
     );
+  }
+
+  // La cuenta puede venir elegida a mano o, si no, la identifica la IA a partir
+  // de la institución y el número que leyó en la cabecera del extracto.
+  let cuentaId = doc.cuenta_id;
+  let cuentaResuelta = "";
+  if (!cuentaId) {
+    const emp = await identificarCuenta(sb, entidadId, {
+      institucion: datos.institucion,
+      numero_cuenta: datos.numero_cuenta,
+      tipo_cuenta: datos.tipo_cuenta,
+      titular: datos.titular,
+    });
+    cuentaId = emp.cuentaId;
+    cuentaResuelta =
+      emp.origen === "CREADA"
+        ? ` · cuenta creada: ${emp.nombre}`
+        : ` · cuenta detectada: ${emp.nombre}`;
+    // Se deja registrada en el documento para trazabilidad.
+    await sb.from("documentos").update({ cuenta_id: cuentaId }).eq("id", doc.id);
   }
 
   // La fecha se normaliza a ISO aquí; un movimiento sin fecha reconocible se
@@ -150,7 +165,7 @@ async function procesarExtracto(
       return {
         entidad_id: entidadId,
         documento_id: doc.id,
-        cuenta_id: doc.cuenta_id as string,
+        cuenta_id: cuentaId as string,
         fecha,
         descripcion: m.descripcion,
         comercio: m.comercio ? normalizarComercio(m.comercio) : null,
@@ -227,6 +242,7 @@ async function procesarExtracto(
     `${clasificados} clasificados automáticamente` +
     (omitidas > 0 ? ` · ${omitidas} ya existían` : "") +
     (sinFecha > 0 ? ` · ${sinFecha} descartados sin fecha` : "") +
+    cuentaResuelta +
     (datos.observaciones.length ? ` · ${datos.observaciones.length} observaciones` : "");
 
   return { resumen, uso, extraccion: datos };

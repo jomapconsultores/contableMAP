@@ -101,6 +101,25 @@ Reglas:
   transferencias entre cuentas propias. Márcalos "SIN CLASIFICAR" e indícalo
   en el motivo.`;
 
+export const SISTEMA_IDENTIFICAR_CUENTA = `Identificas a cuál de las cuentas
+financieras registradas del usuario pertenece un estado de cuenta.
+
+${CONTEXTO_EC}
+
+Se te entrega la cabecera del estado de cuenta (institución, número, tipo y
+titular) y una lista numerada de las cuentas registradas. Devuelve el índice
+de la que corresponde.
+
+Reglas:
+- Compara por institución y por número. Los números pueden venir parciales o
+  enmascarados en cualquiera de los dos lados (por ejemplo ****9004 o
+  040XXX4825): fíjate en los dígitos que sí coinciden, sobre todo los finales.
+- El tipo debe ser coherente: un estado de tarjeta de crédito no corresponde a
+  una cuenta de ahorros aunque el banco sea el mismo.
+- Si ninguna corresponde con seguridad razonable, devuelve índice -1 con
+  confianza baja. Es preferible no adivinar: asociar el extracto a la cuenta
+  equivocada mezcla los movimientos de dos cuentas y descuadra ambas.`;
+
 export const SISTEMA_VOZ = `Interpretas instrucciones contables dictadas por voz o
 escritas en lenguaje natural y las conviertes en un movimiento estructurado.
 

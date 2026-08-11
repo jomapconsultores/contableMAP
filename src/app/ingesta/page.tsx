@@ -281,14 +281,18 @@ const TIPOS_DOC = [
   { valor: "ROL_PAGO", texto: "Rol de pago" },
 ];
 
+const EXT_OK = ["pdf", "png", "jpg", "jpeg", "webp", "gif", "xml", "csv", "txt"];
+
 function PorDocumento() {
   const [tipo, setTipo] = useState(TIPOS_DOC[0].valor);
-  const [cuentaId, setCuentaId] = useState("");
+  const [cuentaId, setCuentaId] = useState(""); // "" = que la IA la detecte
   const [cuentas, setCuentas] = useState<CuentaFinanciera[]>([]);
   const [archivo, setArchivo] = useState<File | null>(null);
+  const [arrastrando, setArrastrando] = useState(false);
   const [estado, setEstado] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const esExtracto = tipo.startsWith("ESTADO_");
 
@@ -299,12 +303,25 @@ function PorDocumento() {
       .catch(() => undefined);
   }, []);
 
-  async function subir() {
-    if (!archivo) return;
-    if (esExtracto && !cuentaId) {
-      setError("Elige la cuenta financiera a la que pertenece el extracto.");
+  function aceptar(f: File | null | undefined) {
+    if (!f) return;
+    const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
+    if (!EXT_OK.includes(ext)) {
+      setError(`Formato no admitido: .${ext}. Usa PDF, imagen, XML o CSV.`);
       return;
     }
+    setError(null);
+    setArchivo(f);
+  }
+
+  function alSoltar(e: React.DragEvent) {
+    e.preventDefault();
+    setArrastrando(false);
+    aceptar(e.dataTransfer.files?.[0]);
+  }
+
+  async function subir() {
+    if (!archivo) return;
 
     setOcupado(true);
     setError(null);
@@ -320,7 +337,11 @@ function PorDocumento() {
       const jsonSubida = await subida.json();
       if (!jsonSubida.ok) throw new Error(jsonSubida.error);
 
-      setEstado("Leyendo el documento con IA… puede tardar un minuto.");
+      setEstado(
+        esExtracto && !cuentaId
+          ? "Leyendo el documento e identificando la cuenta con IA… puede tardar un minuto."
+          : "Leyendo el documento con IA… puede tardar un minuto.",
+      );
 
       const proceso = await fetch(`/api/documentos/${jsonSubida.datos.id}/procesar`, {
         method: "POST",
@@ -370,22 +391,62 @@ function PorDocumento() {
               onChange={(e) => setCuentaId(e.target.value)}
               className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             >
-              <option value="">Elige una…</option>
+              <option value="">Detectar automáticamente (IA)</option>
               {cuentas.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.nombre} · {c.tipo}
                 </option>
               ))}
             </select>
+            <span className="mt-1 block text-xs text-slate-400">
+              Déjalo así y la IA reconoce la cuenta por la institución y el
+              número del estado de cuenta. Si no existe, la crea.
+            </span>
           </label>
         )}
       </div>
 
+      {/* Zona de arrastrar y soltar, también clicable */}
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setArrastrando(true);
+        }}
+        onDragLeave={() => setArrastrando(false)}
+        onDrop={alSoltar}
+        onClick={() => inputRef.current?.click()}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && inputRef.current?.click()}
+        className={`mt-3 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-8 text-center transition-colors ${
+          arrastrando
+            ? "border-emerald-500 bg-emerald-50"
+            : "border-slate-300 bg-slate-50 hover:border-emerald-400 hover:bg-slate-100"
+        }`}
+      >
+        {archivo ? (
+          <>
+            <span className="text-sm font-medium text-slate-700">{archivo.name}</span>
+            <span className="mt-0.5 text-xs text-slate-400">
+              {(archivo.size / 1024).toFixed(0)} KB · clic o suelta otro para cambiarlo
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="text-sm text-slate-600">
+              Arrastra el documento aquí o haz clic para elegirlo
+            </span>
+            <span className="mt-0.5 text-xs text-slate-400">PDF, imagen, XML o CSV</span>
+          </>
+        )}
+      </div>
+
       <input
+        ref={inputRef}
         type="file"
         accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.xml,.csv,.txt"
-        onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
-        className="mt-3 block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm"
+        onChange={(e) => aceptar(e.target.files?.[0])}
+        className="hidden"
       />
 
       <button

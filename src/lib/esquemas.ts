@@ -183,6 +183,17 @@ export const MovimientoDictado = z.object({
   interpretacion: z.string(),
 });
 
+// ---------------------------------------------------------------------------
+// Identificación de la cuenta financiera a la que pertenece un extracto
+// ---------------------------------------------------------------------------
+export const CuentaIdentificada = z.object({
+  /** Índice en la lista de cuentas registradas que se entrega, o -1 si ninguna. */
+  indice: z.number().int(),
+  confianza: z.number().min(0).max(1),
+  motivo: z.string(),
+});
+
+export type CuentaIdentificada = z.infer<typeof CuentaIdentificada>;
 export type LineaExtracto = z.infer<typeof LineaExtracto>;
 export type ExtractoExtraido = z.infer<typeof ExtractoExtraido>;
 export type FacturaExtraida = z.infer<typeof FacturaExtraida>;
