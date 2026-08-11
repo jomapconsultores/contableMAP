@@ -59,7 +59,10 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
+  // `api/health` queda fuera a propósito: un healthcheck que dependiera de la
+  // configuración de Supabase reportaría el contenedor como caído por un fallo
+  // de configuración, que es justo lo que necesitamos poder distinguir.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/health|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
