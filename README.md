@@ -42,6 +42,23 @@ comprobación de sesión del `proxy.ts` es solo comodidad de navegación.
 pantalla de revisión, y todo movimiento guarda con qué confianza y por qué vía
 (`MAPA`, `IA` o `MANUAL`) se clasificó. Por debajo de 0,7 se marca para revisar.
 
+## Pruebas
+
+```bash
+npm run test:db
+```
+
+Levanta un PostgreSQL 17 real en proceso (PGlite), replica el andamiaje que
+aporta Supabase (rol `authenticated`, esquemas `auth` y `storage`), aplica las
+nueve migraciones **sin modificar una línea del SQL que se despliega** y
+ejecuta 38 comprobaciones sobre el motor: cuadre de asientos, rechazo de
+períodos cerrados, saldos de cartera, formulario 104 —incluido que el IVA sin
+derecho a crédito no reste del impuesto causado—, topes de gastos personales y
+exención de los décimos en el impuesto a la renta.
+
+No es una prueba de que el SQL compile: es una prueba de que la contabilidad
+cuadra y de que las invariantes se rechazan cuando deben.
+
 ## Puesta en marcha
 
 ### 1. Base de datos
