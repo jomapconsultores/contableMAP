@@ -89,6 +89,7 @@ begin
       ('2.1.04.03',   'Retenciones de IVA por pagar',           'PASIVO',    'CORRIENTE',           'C', true),
       ('2.1.04.04',   'Retenciones de renta por pagar',         'PASIVO',    'CORRIENTE',           'C', true),
       ('2.1.04.05',   'Impuesto a la renta por pagar',          'PASIVO',    'CORRIENTE',           'C', true),
+      ('2.1.04.06',   'ISD por pagar',                          'PASIVO',    'CORRIENTE',           'C', true),
       ('2.1.05',      'Obligaciones con el IESS',               'PASIVO',    'CORRIENTE',           'C', true),
       ('2.1.06',      'Beneficios sociales por pagar',          'PASIVO',    'CORRIENTE',           'C', true),
       ('2.2',         'PASIVO NO CORRIENTE',                    'PASIVO',    'NO_CORRIENTE',        'C', false),

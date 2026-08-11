@@ -39,6 +39,18 @@ const alim = await uno(`
 v.comprobar("categoría ligada a cuenta y a rubro personal",
   alim?.ligada && alim?.rubro_personal === "ALIMENTACION");
 
+// Cuentas que el motor de contabilización referencia por código: si falta
+// alguna, el asiento correspondiente fallaría solo en producción.
+const requeridas = await uno(`
+  select count(*)::int n from public.plan_cuentas
+   where entidad_id='${E}' and es_movimiento
+     and codigo in ('1.1.01.01','1.1.01.02','1.1.01.03','1.1.02.01','1.1.02.02',
+                    '1.1.03.01','1.1.03.03','1.1.03.04','2.1.01','2.1.02','2.1.03',
+                    '2.1.04.01','2.1.04.03','2.1.04.04','2.1.04.06','2.1.05',
+                    '4.1.02','4.2','4.3','6.1.99','6.2.02')`);
+v.comprobar("todas las cuentas que usa el motor existen y son de movimiento",
+  requeridas.n === 21, `(${requeridas.n}/21)`);
+
 // ---------------------------------------------------------------------------
 console.log("\n2. Partida doble e invariantes");
 

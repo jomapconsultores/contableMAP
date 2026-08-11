@@ -20,6 +20,9 @@ export const CUENTAS = {
   DOC_PAGAR: "2.1.02",
   TARJETAS: "2.1.03",
   IVA_VENTAS: "2.1.04.01",
+  RET_IVA_POR_PAGAR: "2.1.04.03",
+  RET_RENTA_POR_PAGAR: "2.1.04.04",
+  ISD_POR_PAGAR: "2.1.04.06",
   IESS_POR_PAGAR: "2.1.05",
   INGRESO_SERVICIOS: "4.1.02",
   INGRESO_DEPENDENCIA: "4.2",
@@ -464,6 +467,295 @@ export async function contabilizarMovimiento(
     .update({ asiento_id: asientoId, conciliado: true })
     .eq("id", movimientoId);
 
+  return asientoId;
+}
+
+// ---------------------------------------------------------------------------
+// Retenciones
+// ---------------------------------------------------------------------------
+
+/**
+ * Una retención RECIBIDA no es un gasto: es impuesto ya entregado al Estado
+ * por cuenta nuestra, así que descarga la cuenta por cobrar y nace como
+ * crédito tributario. Una retención EFECTUADA es lo simétrico: reduce lo que
+ * le debemos al proveedor y crea una obligación con el SRI.
+ */
+export async function contabilizarRetencion(
+  sb: SupabaseClient,
+  entidadId: string,
+  retencionId: string,
+): Promise<string> {
+  const { data: r, error } = await sb
+    .from("retenciones")
+    .select("*")
+    .eq("id", retencionId)
+    .single();
+
+  if (error || !r) throw new ErrorContable("No se encontró la retención.");
+  if (r.asiento_id) throw new ErrorContable("La retención ya está contabilizada.");
+
+  const renta = c(Number(r.ret_renta));
+  const iva = c(Number(r.ret_iva));
+  const isd = c(Number(r.ret_isd));
+  const total = c(renta + iva + isd);
+
+  if (total <= 0) throw new ErrorContable("La retención no tiene valores.");
+
+  const recibida = r.clase === "RECIBIDA";
+  const lineas: Linea[] = [];
+
+  if (recibida) {
+    if (renta > 0) {
+      lineas.push({
+        cuentaCodigo: CUENTAS.RET_RENTA_RECIBIDA,
+        detalle: "Retención de renta que nos efectuaron",
+        debe: renta,
+      });
+    }
+    if (iva > 0) {
+      lineas.push({
+        cuentaCodigo: CUENTAS.RET_IVA_RECIBIDA,
+        detalle: "Retención de IVA que nos efectuaron",
+        debe: iva,
+      });
+    }
+    if (isd > 0) {
+      lineas.push({ cuentaCodigo: CUENTAS.GASTO_FINANCIERO, detalle: "ISD retenido", debe: isd });
+    }
+    lineas.push({
+      cuentaCodigo: CUENTAS.CLIENTES,
+      detalle: `${r.nombre_contraparte} · retención ${r.numero ?? ""}`.trim(),
+      terceroId: r.tercero_id,
+      haber: total,
+    });
+  } else {
+    lineas.push({
+      cuentaCodigo: CUENTAS.PROVEEDORES,
+      detalle: `${r.nombre_contraparte} · retención ${r.numero ?? ""}`.trim(),
+      terceroId: r.tercero_id,
+      debe: total,
+    });
+    if (renta > 0) {
+      lineas.push({
+        cuentaCodigo: CUENTAS.RET_RENTA_POR_PAGAR,
+        detalle: "Retención de renta por pagar",
+        haber: renta,
+      });
+    }
+    if (iva > 0) {
+      lineas.push({
+        cuentaCodigo: CUENTAS.RET_IVA_POR_PAGAR,
+        detalle: "Retención de IVA por pagar",
+        haber: iva,
+      });
+    }
+    if (isd > 0) {
+      lineas.push({ cuentaCodigo: CUENTAS.ISD_POR_PAGAR, detalle: "ISD por pagar", haber: isd });
+    }
+  }
+
+  const asientoId = await crearAsiento(
+    sb,
+    entidadId,
+    {
+      fecha: r.fecha,
+      glosa: `Retención ${recibida ? "recibida de" : "efectuada a"} ${r.nombre_contraparte}`,
+      tipo: "DIARIO",
+      origen: "IMPUESTO",
+      origenId: retencionId,
+    },
+    lineas,
+  );
+
+  await sb
+    .from("retenciones")
+    .update({ asiento_id: asientoId, estado: "CONTABILIZADA" })
+    .eq("id", retencionId);
+
+  // Solo lo que nos retienen a nosotros es crédito a nuestro favor.
+  if (recibida) {
+    const fecha = new Date(`${String(r.fecha).slice(0, 10)}T00:00:00Z`);
+    const filas = [];
+    if (iva > 0) {
+      filas.push({
+        entidad_id: entidadId,
+        impuesto: "IVA",
+        anio: fecha.getUTCFullYear(),
+        mes: fecha.getUTCMonth() + 1,
+        fecha: r.fecha,
+        tipo: "RETENCION_RECIBIDA",
+        concepto: `Retención de IVA de ${r.nombre_contraparte}`,
+        monto: iva,
+        referencia_id: retencionId,
+      });
+    }
+    if (renta > 0) {
+      filas.push({
+        entidad_id: entidadId,
+        impuesto: "RENTA",
+        anio: fecha.getUTCFullYear(),
+        mes: fecha.getUTCMonth() + 1,
+        fecha: r.fecha,
+        tipo: "RETENCION_RECIBIDA",
+        concepto: `Retención de renta de ${r.nombre_contraparte}`,
+        monto: renta,
+        referencia_id: retencionId,
+      });
+    }
+    if (filas.length) await sb.from("credito_tributario").insert(filas);
+  }
+
+  return asientoId;
+}
+
+// ---------------------------------------------------------------------------
+// Cartera registrada a mano (préstamos, letras, pagarés)
+// ---------------------------------------------------------------------------
+
+/** Cuenta contable que corresponde a cada clase de documento de cartera. */
+const CUENTA_CARTERA: Record<string, string> = {
+  CXC: CUENTAS.CLIENTES,
+  DOC_COBRAR: CUENTAS.DOC_COBRAR,
+  CXP: CUENTAS.PROVEEDORES,
+  DOC_PAGAR: CUENTAS.DOC_PAGAR,
+};
+
+const ES_COBRO = (clase: string) => clase === "CXC" || clase === "DOC_COBRAR";
+
+export async function contabilizarCartera(
+  sb: SupabaseClient,
+  entidadId: string,
+  carteraId: string,
+): Promise<string> {
+  const { data: doc, error } = await sb
+    .from("cartera")
+    .select("*")
+    .eq("id", carteraId)
+    .single();
+
+  if (error || !doc) throw new ErrorContable("No se encontró el documento de cartera.");
+  if (doc.asiento_id) throw new ErrorContable("El documento ya está contabilizado.");
+  if (doc.compra_id || doc.venta_id) {
+    throw new ErrorContable(
+      "Este documento nació de una factura y ya quedó contabilizado con ella.",
+    );
+  }
+
+  const cuentaCartera = CUENTA_CARTERA[doc.clase as string];
+  if (!cuentaCartera) throw new ErrorContable(`Clase de cartera desconocida: ${doc.clase}`);
+
+  const contrapartida = doc.cuenta_id
+    ? (await sb.from("plan_cuentas").select("codigo").eq("id", doc.cuenta_id).single()).data?.codigo
+    : CUENTAS.BANCOS;
+
+  if (!contrapartida) throw new ErrorContable("No se resolvió la cuenta de contrapartida.");
+
+  const monto = c(Number(doc.monto_original));
+
+  // Un documento por cobrar nace contra la entrega de dinero; uno por pagar,
+  // contra su recepción.
+  const lineas: Linea[] = ES_COBRO(doc.clase)
+    ? [
+        { cuentaCodigo: cuentaCartera, detalle: doc.descripcion, terceroId: doc.tercero_id, debe: monto },
+        { cuentaCodigo: contrapartida, detalle: doc.nombre_tercero, haber: monto },
+      ]
+    : [
+        { cuentaCodigo: contrapartida, detalle: doc.nombre_tercero, debe: monto },
+        { cuentaCodigo: cuentaCartera, detalle: doc.descripcion, terceroId: doc.tercero_id, haber: monto },
+      ];
+
+  const asientoId = await crearAsiento(
+    sb,
+    entidadId,
+    {
+      fecha: doc.fecha_emision,
+      glosa: `${doc.descripcion} · ${doc.nombre_tercero}`,
+      tipo: "DIARIO",
+      origen: ES_COBRO(doc.clase) ? "COBRO" : "PAGO",
+      origenId: carteraId,
+    },
+    lineas,
+  );
+
+  await sb.from("cartera").update({ asiento_id: asientoId }).eq("id", carteraId);
+  return asientoId;
+}
+
+// ---------------------------------------------------------------------------
+// Abono: cobro o pago aplicado a un documento de cartera
+// ---------------------------------------------------------------------------
+export async function contabilizarAbono(
+  sb: SupabaseClient,
+  entidadId: string,
+  abonoId: string,
+): Promise<string> {
+  const { data: abono, error } = await sb
+    .from("abonos")
+    .select("*, cartera(clase, nombre_tercero, tercero_id, descripcion)")
+    .eq("id", abonoId)
+    .single();
+
+  if (error || !abono) throw new ErrorContable("No se encontró el abono.");
+  if (abono.asiento_id) throw new ErrorContable("El abono ya está contabilizado.");
+
+  const doc = unaFila<{
+    clase: string;
+    nombre_tercero: string;
+    tercero_id: string | null;
+    descripcion: string;
+  }>(abono.cartera);
+  if (!doc) throw new ErrorContable("El abono no está ligado a ningún documento.");
+
+  const cuentaCartera = CUENTA_CARTERA[doc.clase];
+  const fin = abono.cuenta_financiera_id
+    ? await cuentaDeFinanciera(sb, abono.cuenta_financiera_id)
+    : { codigo: CUENTAS.BANCOS, nombre: "Bancos", tipo: "BANCO" };
+
+  const monto = c(Number(abono.monto));
+  const interes = c(Number(abono.interes ?? 0));
+  const cobro = ES_COBRO(doc.clase);
+
+  const lineas: Linea[] = [];
+
+  if (cobro) {
+    // Entra dinero y se descarga la cuenta por cobrar.
+    lineas.push({ cuentaCodigo: fin.codigo, detalle: `Cobro ${doc.nombre_tercero}`, debe: c(monto + interes) });
+    lineas.push({
+      cuentaCodigo: cuentaCartera,
+      detalle: doc.descripcion,
+      terceroId: doc.tercero_id,
+      haber: monto,
+    });
+    if (interes > 0) {
+      lineas.push({ cuentaCodigo: CUENTAS.OTROS_INGRESOS, detalle: "Interés cobrado", haber: interes });
+    }
+  } else {
+    lineas.push({
+      cuentaCodigo: cuentaCartera,
+      detalle: doc.descripcion,
+      terceroId: doc.tercero_id,
+      debe: monto,
+    });
+    if (interes > 0) {
+      lineas.push({ cuentaCodigo: CUENTAS.GASTO_FINANCIERO, detalle: "Interés pagado", debe: interes });
+    }
+    lineas.push({ cuentaCodigo: fin.codigo, detalle: `Pago ${doc.nombre_tercero}`, haber: c(monto + interes) });
+  }
+
+  const asientoId = await crearAsiento(
+    sb,
+    entidadId,
+    {
+      fecha: abono.fecha,
+      glosa: `${cobro ? "Cobro" : "Pago"} · ${doc.nombre_tercero}`,
+      tipo: cobro ? "INGRESO" : "EGRESO",
+      origen: cobro ? "COBRO" : "PAGO",
+      origenId: abonoId,
+    },
+    lineas,
+  );
+
+  await sb.from("abonos").update({ asiento_id: asientoId }).eq("id", abonoId);
   return asientoId;
 }
 
