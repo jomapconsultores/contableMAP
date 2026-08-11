@@ -13,6 +13,30 @@ import { NextResponse, type NextRequest } from "next/server";
 const PUBLICAS = ["/login", "/auth", "/api/health"];
 
 export async function proxy(request: NextRequest) {
+  // Sin configuración, `createServerClient` lanza y toda la aplicación
+  // responde 500 sin explicar nada. Un mensaje concreto ahorra el viaje a los
+  // registros del contenedor cada vez que falta una variable.
+  const faltantes = (
+    [
+      ["NEXT_PUBLIC_SUPABASE_URL", process.env.NEXT_PUBLIC_SUPABASE_URL],
+      ["NEXT_PUBLIC_SUPABASE_ANON_KEY", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY],
+    ] as const
+  )
+    .filter(([, valor]) => !valor)
+    .map(([nombre]) => nombre);
+
+  if (faltantes.length > 0) {
+    return new NextResponse(
+      `ContableMAP no está configurado.\n\n` +
+        `Faltan estas variables de entorno:\n` +
+        faltantes.map((f) => `  · ${f}`).join("\n") +
+        `\n\nLas dos son NEXT_PUBLIC_*, así que Next las incrusta en el bundle\n` +
+        `durante la compilación: hay que definirlas antes de construir la\n` +
+        `imagen y volver a desplegar, no basta con reiniciar el contenedor.\n`,
+      { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" } },
+    );
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
