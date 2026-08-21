@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCarga } from "@/lib/carga";
+import FacturacionElectronica from "./facturacion-electronica";
 
 interface Entidad {
   id: string;
@@ -61,6 +62,7 @@ export default function Ajustes() {
           {entidades.length > 0 && (
             <SeccionCuentas cuentas={cuentas} alCrear={recargar} />
           )}
+          {entidades.length > 0 && <FacturacionElectronica />}
         </>
       )}
     </div>

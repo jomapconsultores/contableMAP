@@ -270,4 +270,92 @@ const { d: dash } = await uno(`select public.fn_dashboard('${E}',2026,3) d`);
 v.comprobar("el panel devuelve todas las secciones",
   Boolean(dash.resultados && dash.iva && dash.cartera && dash.pendientes));
 
+// ---------------------------------------------------------------------------
+console.log("\n9. Facturación electrónica");
+
+const { id: PUNTO } = await uno(`
+  insert into public.puntos_emision (entidad_id, establecimiento, punto_emision, sec_factura)
+  values ('${E}', '001', '001', 120)
+  returning id`);
+
+const sec1 = await uno(`select public.sri_siguiente_secuencial('${PUNTO}','FACTURA') s`);
+const sec2 = await uno(`select public.sri_siguiente_secuencial('${PUNTO}','FACTURA') s`);
+const reservado = await uno(`select sec_factura from public.puntos_emision where id='${PUNTO}'`);
+
+v.comprobar("el secuencial arranca donde se dejó la numeración", Number(sec1.s) === 120, `(${sec1.s})`);
+v.comprobar("y no se repite en la siguiente factura", Number(sec2.s) === 121, `(${sec2.s})`);
+v.comprobar("cada entrega deja reservado el próximo número",
+  Number(reservado.sec_factura) === 122, `(${reservado.sec_factura})`);
+
+// Pedir un secuencial de un punto que no existe no puede devolver uno válido.
+let secuencialFantasma = false;
+try {
+  await uno(`select public.sri_siguiente_secuencial('00000000-0000-0000-0000-000000000000','FACTURA') s`);
+} catch {
+  secuencialFantasma = true;
+}
+v.comprobar("un punto de emisión inexistente no entrega numeración", secuencialFantasma);
+
+let tipoDesconocido = false;
+try {
+  await uno(`select public.sri_siguiente_secuencial('${PUNTO}','GUIA') s`);
+} catch {
+  tipoDesconocido = true;
+}
+v.comprobar("solo hay secuencial para los comprobantes previstos", tipoDesconocido);
+
+// La clave de acceso identifica el comprobante: no puede haber dos iguales.
+const CLAVE = "2108202601179123456700110010010000001201234567819";
+await db.exec(`
+  insert into public.ventas (entidad_id, fecha, establecimiento, punto_emision, secuencial,
+    clave_acceso, razon_social_cliente, id_cliente, base_15, iva_15, total, sri_estado, sri_ambiente)
+  values ('${E}','2026-08-21','001','001','000000120','${CLAVE}','COMERCIAL ANDINA S.A.',
+          '1791234567001', 100, 15, 115, 'FIRMADA', 1)`);
+
+let claveRepetida = false;
+try {
+  await db.exec(`
+    insert into public.ventas (entidad_id, fecha, establecimiento, punto_emision, secuencial,
+      clave_acceso, razon_social_cliente, id_cliente, total)
+    values ('${E}','2026-08-21','001','002','000000999','${CLAVE}','OTRO CLIENTE','1791234567001', 50)`);
+} catch {
+  claveRepetida = true;
+}
+v.comprobar("la clave de acceso no se puede repetir", claveRepetida);
+
+const { id: VENTA } = await uno(
+  `select id from public.ventas where clave_acceso='${CLAVE}'`);
+
+await db.exec(`
+  insert into public.venta_items (venta_id, orden, codigo_principal, descripcion,
+    cantidad, precio_unitario, tarifa, base, iva)
+  values ('${VENTA}', 1, 'SERV-01', 'Asesoría', 1, 100, '15', 100, 15)`);
+
+let tarifaInventada = false;
+try {
+  await db.exec(`
+    insert into public.venta_items (venta_id, orden, codigo_principal, descripcion,
+      cantidad, precio_unitario, tarifa, base, iva)
+    values ('${VENTA}', 2, 'SERV-02', 'Otro', 1, 100, '12', 100, 12)`);
+} catch {
+  tarifaInventada = true;
+}
+v.comprobar("solo se admiten las tarifas de IVA vigentes", tarifaInventada);
+
+let estadoInventado = false;
+try {
+  await db.exec(`update public.ventas set sri_estado='ENVIADA' where id='${VENTA}'`);
+} catch {
+  estadoInventado = true;
+}
+v.comprobar("el estado ante el SRI no admite valores fuera del catálogo", estadoInventado);
+
+// La factura emitida es una venta más: entra en el libro de ventas y en el 104
+// sin que el módulo de IVA sepa nada de firmas ni de claves de acceso.
+const resumenAgosto = await uno(
+  `select * from public.fn_resumen_ventas('${E}','2026-08-01','2026-08-31')`);
+v.comprobar("la factura electrónica entra en el libro de ventas",
+  Number(resumenAgosto.base_gravada) === 100 && Number(resumenAgosto.iva_generado) === 15,
+  `(base ${resumenAgosto.base_gravada}, IVA ${resumenAgosto.iva_generado})`);
+
 process.exit(v.resumen() > 0 ? 1 : 0);

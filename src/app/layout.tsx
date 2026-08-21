@@ -13,6 +13,7 @@ const SECCIONES = [
   { href: "/ingesta", texto: "Ingresar datos" },
   { href: "/movimientos", texto: "Movimientos" },
   { href: "/comprobantes", texto: "Comprobantes" },
+  { href: "/facturar", texto: "Facturar" },
   { href: "/cartera", texto: "Cartera" },
   { href: "/retenciones", texto: "Retenciones" },
   { href: "/informes", texto: "Informes" },
