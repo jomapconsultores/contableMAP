@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { usd, fecha } from "@/lib/formato";
+import { useCarga } from "@/lib/carga";
 
 interface Documento {
   id: string;
@@ -50,26 +51,38 @@ export default function Cartera() {
   const [nuevoAbierto, setNuevoAbierto] = useState(false);
   const [abonando, setAbonando] = useState<Documento | null>(null);
 
-  const cargar = useCallback(async () => {
-    setCargando(true);
-    try {
-      const [c, f] = await Promise.all([
-        fetch("/api/cartera").then((r) => r.json()),
-        fetch("/api/cuentas").then((r) => r.json()),
-      ]);
-      if (!c.ok) throw new Error(c.error);
-      setDocs(c.datos);
-      if (f.ok) setCuentas(f.datos);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Error al cargar");
-    } finally {
-      setCargando(false);
-    }
+  const pedir = useCallback(async () => {
+    const [c, f] = await Promise.all([
+      fetch("/api/cartera").then((r) => r.json()),
+      fetch("/api/cuentas").then((r) => r.json()),
+    ]);
+    if (!c.ok) throw new Error(c.error);
+    return {
+      docs: c.datos as Documento[],
+      cuentas: f.ok ? (f.datos as CuentaFinanciera[]) : null,
+    };
   }, []);
 
-  useEffect(() => {
-    void cargar();
-  }, [cargar]);
+  const aplicar = useCallback(
+    (r: { docs: Documento[]; cuentas: CuentaFinanciera[] | null } | Error) => {
+      if (r instanceof Error) {
+        setError(r.message);
+      } else {
+        setDocs(r.docs);
+        if (r.cuentas) setCuentas(r.cuentas);
+      }
+      setCargando(false);
+    },
+    [],
+  );
+
+  const recargar = useCarga(pedir, aplicar);
+
+  // Tras guardar un documento o un abono: indicador de nuevo y vuelta a pedir.
+  const cargar = useCallback(async () => {
+    setCargando(true);
+    await recargar();
+  }, [recargar]);
 
   const cobrar = docs.filter((d) => d.clase === "CXC" || d.clase === "DOC_COBRAR");
   const pagar = docs.filter((d) => d.clase === "CXP" || d.clase === "DOC_PAGAR");

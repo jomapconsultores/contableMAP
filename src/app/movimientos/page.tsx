@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { usd, fecha } from "@/lib/formato";
+import { useCarga, type Respuesta } from "@/lib/carga";
 
 interface Movimiento {
   id: string;
@@ -39,26 +40,35 @@ export default function Movimientos() {
   const [aviso, setAviso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const cargar = useCallback(async () => {
-    setCargando(true);
-    try {
-      const [mov, cat] = await Promise.all([
-        fetch(`/api/movimientos?estado=${filtro}`).then((r) => r.json()),
-        fetch("/api/categorias").then((r) => r.json()),
-      ]);
-      if (mov.ok) setMovimientos(mov.datos);
-      else setError(mov.error);
-      if (cat.ok) setCategorias(cat.datos);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Error al cargar");
-    } finally {
-      setCargando(false);
-    }
+  const pedir = useCallback(async () => {
+    const [mov, cat] = (await Promise.all([
+      fetch(`/api/movimientos?estado=${filtro}`).then((r) => r.json()),
+      fetch("/api/categorias").then((r) => r.json()),
+    ])) as [Respuesta<Movimiento[]>, Respuesta<Categoria[]>];
+    return { mov, cat };
   }, [filtro]);
 
-  useEffect(() => {
-    void cargar();
-  }, [cargar]);
+  const aplicar = useCallback(
+    (r: { mov: Respuesta<Movimiento[]>; cat: Respuesta<Categoria[]> } | Error) => {
+      if (r instanceof Error) {
+        setError(r.message);
+      } else {
+        if (r.mov.ok) setMovimientos(r.mov.datos);
+        else setError(r.mov.error);
+        if (r.cat.ok) setCategorias(r.cat.datos);
+      }
+      setCargando(false);
+    },
+    [],
+  );
+
+  const recargar = useCarga(pedir, aplicar);
+
+  // Tras una acción masiva: indicador de nuevo y vuelta a pedir.
+  const cargar = useCallback(async () => {
+    setCargando(true);
+    await recargar();
+  }, [recargar]);
 
   async function accionMasiva(accion: "clasificar" | "contabilizar") {
     setOcupado(true);
@@ -129,7 +139,10 @@ export default function Movimientos() {
         <div className="flex flex-wrap gap-2">
           <select
             value={filtro}
-            onChange={(e) => setFiltro(e.target.value)}
+            onChange={(e) => {
+              setFiltro(e.target.value);
+              setCargando(true);
+            }}
             className="rounded-md border border-slate-300 px-3 py-2 text-sm"
           >
             {FILTROS.map((f) => (

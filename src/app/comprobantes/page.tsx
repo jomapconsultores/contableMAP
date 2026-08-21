@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { usd, fecha } from "@/lib/formato";
+import { useCarga } from "@/lib/carga";
 
 interface Comprobante {
   id: string;
@@ -48,28 +49,40 @@ export default function Comprobantes() {
   const [aviso, setAviso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const cargar = useCallback(async () => {
-    setCargando(true);
-    setError(null);
-    try {
-      const estado = soloPendientes ? "&estado=sin_contabilizar" : "";
-      const [c, k] = await Promise.all([
-        fetch(`/api/comprobantes?clase=${clase}${estado}`).then((r) => r.json()),
-        fetch("/api/categorias").then((r) => r.json()),
-      ]);
-      if (!c.ok) throw new Error(c.error);
-      setFilas(c.datos);
-      if (k.ok) setCategorias(k.datos);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Error al cargar");
-    } finally {
-      setCargando(false);
-    }
+  const pedir = useCallback(async () => {
+    const estado = soloPendientes ? "&estado=sin_contabilizar" : "";
+    const [c, k] = await Promise.all([
+      fetch(`/api/comprobantes?clase=${clase}${estado}`).then((r) => r.json()),
+      fetch("/api/categorias").then((r) => r.json()),
+    ]);
+    if (!c.ok) throw new Error(c.error);
+    return {
+      filas: c.datos as Comprobante[],
+      categorias: k.ok ? (k.datos as Categoria[]) : null,
+    };
   }, [clase, soloPendientes]);
 
-  useEffect(() => {
-    void cargar();
-  }, [cargar]);
+  const aplicar = useCallback(
+    (r: { filas: Comprobante[]; categorias: Categoria[] | null } | Error) => {
+      if (r instanceof Error) {
+        setError(r.message);
+      } else {
+        setError(null);
+        setFilas(r.filas);
+        if (r.categorias) setCategorias(r.categorias);
+      }
+      setCargando(false);
+    },
+    [],
+  );
+
+  const recargar = useCarga(pedir, aplicar);
+
+  // Tras contabilizar o editar: indicador de nuevo y vuelta a pedir.
+  const cargar = useCallback(async () => {
+    setCargando(true);
+    await recargar();
+  }, [recargar]);
 
   async function contabilizar() {
     setOcupado(true);
@@ -129,7 +142,10 @@ export default function Comprobantes() {
             {(["compras", "ventas"] as const).map((c) => (
               <button
                 key={c}
-                onClick={() => setClase(c)}
+                onClick={() => {
+                  setClase(c);
+                  setCargando(true);
+                }}
                 className={`px-3 py-2 first:rounded-l-md last:rounded-r-md ${
                   clase === c ? "bg-emerald-600 text-white" : "hover:bg-slate-100"
                 }`}
@@ -142,7 +158,10 @@ export default function Comprobantes() {
             <input
               type="checkbox"
               checked={soloPendientes}
-              onChange={(e) => setSoloPendientes(e.target.checked)}
+              onChange={(e) => {
+                setSoloPendientes(e.target.checked);
+                setCargando(true);
+              }}
             />
             Solo sin contabilizar
           </label>

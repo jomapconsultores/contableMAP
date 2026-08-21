@@ -14,6 +14,8 @@ partida doble, los estados financieros y las declaraciones.
 | **Ingesta por documentos** | PDF, imagen, XML o CSV. Extracción de la cabecera y de cada línea del extracto. |
 | **Clasificación** | Mapa aprendido RUC/comercio → categoría. Lo que el mapa no reconoce va al modelo; lo que el modelo resuelve con confianza alta se incorpora al mapa. |
 | **Contabilidad** | Partida doble con plan de cuentas propio, validación de cuadre en base de datos y cierre de períodos. |
+| **Comprobantes** | Compras y ventas con su desglose de bases e IVA por tarifa, crédito tributario y deducibilidad, contabilizables uno a uno o en lote. |
+| **Retenciones** | Retenciones recibidas y efectuadas de renta, IVA e ISD, con su asiento. |
 | **Cartera** | Cuentas y documentos por cobrar y por pagar, con abonos y antigüedad de saldos. |
 | **IVA** | Libros de compras y ventas, formulario 104 y mayor de crédito tributario. |
 | **Renta** | Acumulación anual, gastos personales por rubro con topes y liquidación del formulario 102. |
@@ -50,8 +52,8 @@ npm run test:db
 
 Levanta un PostgreSQL 17 real en proceso (PGlite), replica el andamiaje que
 aporta Supabase (rol `authenticated`, esquemas `auth` y `storage`), aplica las
-nueve migraciones **sin modificar una línea del SQL que se despliega** y
-ejecuta 38 comprobaciones sobre el motor: cuadre de asientos, rechazo de
+diez migraciones **sin modificar una línea del SQL que se despliega** y
+ejecuta 39 comprobaciones sobre el motor: cuadre de asientos, rechazo de
 períodos cerrados, saldos de cartera, formulario 104 —incluido que el IVA sin
 derecho a crédito no reste del impuesto causado—, topes de gastos personales y
 exención de los décimos en el impuesto a la renta.
@@ -71,7 +73,7 @@ supabase link --project-ref <ref>
 supabase db push
 ```
 
-O pegando cada archivo en el editor SQL, del `0001` al `0009`. La migración
+O pegando cada archivo en el editor SQL, del `0001` al `0010`. La migración
 `0007` crea además el bucket privado `documentos` y sus políticas.
 
 ### 2. Variables de entorno
@@ -83,8 +85,8 @@ Copia `.env.example` a `.env.local` y complétalo:
 | `NEXT_PUBLIC_SUPABASE_URL` | URL del proyecto |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Clave pública |
 | `SUPABASE_SERVICE_ROLE_KEY` | Solo servidor: tareas que deben saltar RLS |
-| `ANTHROPIC_API_KEY` | Extracción, clasificación e interpretación de voz |
-| `ANTHROPIC_MODEL` | Opcional; por defecto `claude-opus-5` |
+| `MISTRAL_API_KEY` | Extracción, clasificación e interpretación de voz |
+| `MISTRAL_MODEL` | Opcional; fija un solo modelo para todo. Sin él, el sistema elige `mistral-large-latest` para la extracción y `mistral-medium-latest` para clasificación y voz |
 
 ### 3. Desarrollo
 
@@ -128,12 +130,16 @@ se puede activar el proxy de Cloudflare.
 supabase/migrations/   0001 núcleo · 0002 contabilidad · 0003 documentos
                        0004 tributario · 0005 cartera · 0006 declaraciones
                        0007 RLS · 0008 semillas · 0009 estados financieros
+                       0010 deduplicación de documentos
 src/lib/               ia · esquemas · prompts · extraccion · clasificacion
-                       contabilizacion · api · formato · supabase/
-src/app/api/           documentos · movimientos · voz · informes · categorias
-                       cuentas · entidades · health
-src/app/               panel · ingesta · movimientos · cartera · informes
-                       impuestos · ajustes · login
+                       contabilizacion · cuentas · api · fechas · formato
+                       carga · supabase/
+src/app/api/           documentos · movimientos · comprobantes · retenciones
+                       cartera · voz · informes · categorias · cuentas
+                       entidades · health
+src/app/               panel · ingesta · movimientos · comprobantes
+                       retenciones · cartera · informes · impuestos
+                       ajustes · login
 ```
 
 ## Sobre los cálculos tributarios

@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { usd } from "@/lib/formato";
+import { useCarga } from "@/lib/carga";
 
 interface Detalle {
   codigo: string;
@@ -52,28 +53,28 @@ export default function Informes() {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const cargar = useCallback(async () => {
-    setCargando(true);
-    setError(null);
-    try {
-      const [r1, r2] = await Promise.all([
-        fetch(`/api/informes?tipo=resultados&desde=${desde}&hasta=${hasta}`).then((r) => r.json()),
-        fetch(`/api/informes?tipo=balance&hasta=${hasta}&anio=${anio}`).then((r) => r.json()),
-      ]);
-      if (!r1.ok) throw new Error(r1.error);
-      if (!r2.ok) throw new Error(r2.error);
-      setPyg(r1.datos);
-      setBalance(r2.datos);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Error al cargar");
-    } finally {
-      setCargando(false);
-    }
+  const pedir = useCallback(async () => {
+    const [r1, r2] = await Promise.all([
+      fetch(`/api/informes?tipo=resultados&desde=${desde}&hasta=${hasta}`).then((r) => r.json()),
+      fetch(`/api/informes?tipo=balance&hasta=${hasta}&anio=${anio}`).then((r) => r.json()),
+    ]);
+    if (!r1.ok) throw new Error(r1.error);
+    if (!r2.ok) throw new Error(r2.error);
+    return { pyg: r1.datos as Resultados, balance: r2.datos as Balance };
   }, [desde, hasta, anio]);
 
-  useEffect(() => {
-    void cargar();
-  }, [cargar]);
+  const aplicar = useCallback((r: { pyg: Resultados; balance: Balance } | Error) => {
+    if (r instanceof Error) {
+      setError(r.message);
+    } else {
+      setError(null);
+      setPyg(r.pyg);
+      setBalance(r.balance);
+    }
+    setCargando(false);
+  }, []);
+
+  useCarga(pedir, aplicar);
 
   return (
     <div className="space-y-6">
@@ -88,6 +89,7 @@ export default function Informes() {
               onChange={(e) => {
                 setDesde(e.target.value);
                 setAnio(Number(e.target.value.slice(0, 4)));
+                setCargando(true);
               }}
               className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
             />
@@ -97,7 +99,10 @@ export default function Informes() {
             <input
               type="date"
               value={hasta}
-              onChange={(e) => setHasta(e.target.value)}
+              onChange={(e) => {
+                setHasta(e.target.value);
+                setCargando(true);
+              }}
               className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
             />
           </label>

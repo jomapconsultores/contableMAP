@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useCarga } from "@/lib/carga";
 
 interface Entidad {
   id: string;
@@ -24,19 +25,30 @@ export default function Ajustes() {
   const [cuentas, setCuentas] = useState<Cuenta[]>([]);
   const [cargando, setCargando] = useState(true);
 
-  async function recargar() {
+  const pedir = useCallback(async () => {
     const e = await fetch("/api/entidades").then((r) => r.json());
-    if (e.ok) setEntidades(e.datos);
-    if (e.ok && e.datos.length > 0) {
-      const c = await fetch("/api/cuentas").then((r) => r.json());
-      if (c.ok) setCuentas(c.datos);
-    }
-    setCargando(false);
-  }
-
-  useEffect(() => {
-    void recargar();
+    const hayEntidades = e.ok && e.datos.length > 0;
+    const c = hayEntidades
+      ? await fetch("/api/cuentas").then((r) => r.json())
+      : { ok: false };
+    return {
+      entidades: e.ok ? (e.datos as Entidad[]) : null,
+      cuentas: c.ok ? (c.datos as Cuenta[]) : null,
+    };
   }, []);
+
+  const aplicar = useCallback(
+    (r: { entidades: Entidad[] | null; cuentas: Cuenta[] | null } | Error) => {
+      if (!(r instanceof Error)) {
+        if (r.entidades) setEntidades(r.entidades);
+        if (r.cuentas) setCuentas(r.cuentas);
+      }
+      setCargando(false);
+    },
+    [],
+  );
+
+  const recargar = useCarga(pedir, aplicar);
 
   return (
     <div className="space-y-6">

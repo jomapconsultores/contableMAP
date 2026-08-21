@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { usd, nombreMes, MESES } from "@/lib/formato";
+import { useCarga, type Respuesta } from "@/lib/carga";
 
 interface DeclaracionIva {
   ventas: Record<string, number>;
@@ -68,30 +69,32 @@ export default function Impuestos() {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const cargar = useCallback(async () => {
-    setCargando(true);
-    setError(null);
-    try {
-      const [a, b] = await Promise.all([
-        fetch(`/api/informes?tipo=iva&anio=${anio}&mes=${mes}`).then((r) => r.json()),
-        fetch(`/api/informes?tipo=renta&anio=${anio}`).then((r) => r.json()),
-      ]);
-      if (!a.ok) throw new Error(a.error);
-      setIva(a.datos);
-      // La renta puede fallar si faltan parámetros fiscales del año.
-      if (b.ok) setRenta(b.datos);
-      else setRenta(null);
-      if (!b.ok) setError(b.error);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Error al cargar");
-    } finally {
-      setCargando(false);
-    }
+  const pedir = useCallback(async () => {
+    const [a, b] = (await Promise.all([
+      fetch(`/api/informes?tipo=iva&anio=${anio}&mes=${mes}`).then((r) => r.json()),
+      fetch(`/api/informes?tipo=renta&anio=${anio}`).then((r) => r.json()),
+    ])) as [Respuesta<DeclaracionIva>, Respuesta<Renta>];
+    if (!a.ok) throw new Error(a.error);
+    return { iva: a.datos, renta: b };
   }, [anio, mes]);
 
-  useEffect(() => {
-    void cargar();
-  }, [cargar]);
+  const aplicar = useCallback(
+    (r: { iva: DeclaracionIva; renta: Respuesta<Renta> } | Error) => {
+      if (r instanceof Error) {
+        setError(r.message);
+      } else {
+        setError(null);
+        setIva(r.iva);
+        // La renta puede fallar si faltan parámetros fiscales del año.
+        setRenta(r.renta.ok ? r.renta.datos : null);
+        if (!r.renta.ok) setError(r.renta.error);
+      }
+      setCargando(false);
+    },
+    [],
+  );
+
+  useCarga(pedir, aplicar);
 
   return (
     <div className="space-y-6">
@@ -100,7 +103,10 @@ export default function Impuestos() {
         <div className="flex gap-2">
           <select
             value={mes}
-            onChange={(e) => setMes(Number(e.target.value))}
+            onChange={(e) => {
+              setMes(Number(e.target.value));
+              setCargando(true);
+            }}
             className="rounded-md border border-slate-300 px-3 py-2 text-sm"
           >
             {MESES.map((m, i) => (
@@ -114,7 +120,10 @@ export default function Impuestos() {
             value={anio}
             min={2000}
             max={2100}
-            onChange={(e) => setAnio(Number(e.target.value))}
+            onChange={(e) => {
+              setAnio(Number(e.target.value));
+              setCargando(true);
+            }}
             className="w-24 rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
         </div>

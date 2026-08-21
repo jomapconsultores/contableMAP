@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { usd, fecha } from "@/lib/formato";
+import { useCarga } from "@/lib/carga";
 
 interface Retencion {
   id: string;
@@ -30,22 +31,25 @@ export default function Retenciones() {
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
 
-  const cargar = useCallback(async () => {
-    setCargando(true);
-    try {
-      const j = await fetch("/api/retenciones").then((r) => r.json());
-      if (!j.ok) throw new Error(j.error);
-      setFilas(j.datos);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Error al cargar");
-    } finally {
-      setCargando(false);
-    }
+  const pedir = useCallback(async (): Promise<Retencion[]> => {
+    const j = await fetch("/api/retenciones").then((r) => r.json());
+    if (!j.ok) throw new Error(j.error);
+    return j.datos;
   }, []);
 
-  useEffect(() => {
-    void cargar();
-  }, [cargar]);
+  const aplicar = useCallback((r: Retencion[] | Error) => {
+    if (r instanceof Error) setError(r.message);
+    else setFilas(r);
+    setCargando(false);
+  }, []);
+
+  const recargar = useCarga(pedir, aplicar);
+
+  // Tras guardar una retención: indicador de nuevo y vuelta a pedir.
+  const cargar = useCallback(async () => {
+    setCargando(true);
+    await recargar();
+  }, [recargar]);
 
   const recibidas = filas.filter((f) => f.clase === "RECIBIDA");
   const totalIva = recibidas.reduce((s, f) => s + Number(f.ret_iva), 0);

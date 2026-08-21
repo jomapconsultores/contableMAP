@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { usd } from "@/lib/formato";
 
 /* -------------------------------------------------------------------------
@@ -36,6 +42,16 @@ function obtenerReconocedor(): ConstructorVoz | null {
   };
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
+
+/**
+ * Que el navegador traiga o no reconocedor no cambia mientras la página vive,
+ * así que la suscripción no tiene a qué avisar. En el servidor se asume que sí
+ * lo hay para que el marcado inicial coincida con el de la hidratación; el
+ * valor real se lee en cuanto el componente monta en el cliente.
+ */
+const SIN_CAMBIOS = () => () => {};
+const HAY_RECONOCEDOR = () => obtenerReconocedor() !== null;
+const HAY_RECONOCEDOR_EN_SERVIDOR = () => true;
 
 interface Propuesta {
   operacion: string;
@@ -74,17 +90,19 @@ export default function Ingesta() {
 function PorVoz() {
   const [texto, setTexto] = useState("");
   const [escuchando, setEscuchando] = useState(false);
-  const [soportado, setSoportado] = useState(true);
+  const soportado = useSyncExternalStore(
+    SIN_CAMBIOS,
+    HAY_RECONOCEDOR,
+    HAY_RECONOCEDOR_EN_SERVIDOR,
+  );
   const [propuesta, setPropuesta] = useState<Propuesta | null>(null);
   const [estado, setEstado] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const reconocedor = useRef<Reconocedor | null>(null);
 
-  useEffect(() => {
-    setSoportado(obtenerReconocedor() !== null);
-    return () => reconocedor.current?.stop();
-  }, []);
+  // Al salir de la página se corta la escucha, si quedó abierta.
+  useEffect(() => () => reconocedor.current?.stop(), []);
 
   const alternarEscucha = useCallback(() => {
     if (escuchando) {
