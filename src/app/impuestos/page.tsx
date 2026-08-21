@@ -133,7 +133,7 @@ export default function Impuestos() {
       {cargando && <p className="text-sm text-slate-500">Calculando…</p>}
 
       {iva && (
-        <section className="rounded-lg border border-slate-200 bg-white p-5">
+        <section id="iva" className="scroll-mt-4 rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="font-medium">
             Declaración de IVA · formulario 104 · {nombreMes(mes)} {anio}
           </h2>
@@ -150,7 +150,7 @@ export default function Impuestos() {
       )}
 
       {renta && (
-        <section className="rounded-lg border border-slate-200 bg-white p-5">
+        <section id="renta" className="scroll-mt-4 rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="font-medium">Impuesto a la renta · ejercicio {renta.anio}</h2>
           <div className="mt-4 grid gap-6 lg:grid-cols-2">
             <dl className="divide-y divide-slate-100 text-sm">

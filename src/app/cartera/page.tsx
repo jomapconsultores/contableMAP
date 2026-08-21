@@ -138,18 +138,20 @@ export default function Cartera() {
 
       {cargando && <p className="text-sm text-slate-500">Cargando…</p>}
 
-      <Grupo titulo="Por cobrar" docs={cobrar} tono="verde" alAbonar={setAbonando} />
-      <Grupo titulo="Por pagar" docs={pagar} tono="rojo" alAbonar={setAbonando} />
+      <Grupo id="cobrar" titulo="Por cobrar" docs={cobrar} tono="verde" alAbonar={setAbonando} />
+      <Grupo id="pagar" titulo="Por pagar" docs={pagar} tono="rojo" alAbonar={setAbonando} />
     </div>
   );
 }
 
 function Grupo({
+  id,
   titulo,
   docs,
   tono,
   alAbonar,
 }: {
+  id: string;
   titulo: string;
   docs: Documento[];
   tono: "verde" | "rojo";
@@ -159,7 +161,7 @@ function Grupo({
   const vencido = docs.filter((d) => d.dias_vencido > 0).reduce((s, d) => s + Number(d.saldo), 0);
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5">
+    <section id={id} className="scroll-mt-4 rounded-lg border border-slate-200 bg-white p-5">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="font-medium">{titulo}</h2>
         <div className="text-sm">

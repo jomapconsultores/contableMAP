@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { Suspense, useCallback, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { usd, fecha } from "@/lib/formato";
 import { useCarga } from "@/lib/carga";
 
@@ -39,8 +40,23 @@ interface Categoria {
   nombre: string;
 }
 
+/**
+ * La pestaña vive en la URL y no en el estado del componente: así el submenú
+ * de la barra lateral puede entrar directamente en compras o en ventas, y la
+ * pantalla se puede enlazar y recargar sin perder dónde estabas.
+ */
 export default function Comprobantes() {
-  const [clase, setClase] = useState<"compras" | "ventas">("compras");
+  return (
+    <Suspense fallback={<p className="text-sm text-slate-500">Cargando…</p>}>
+      <Listado />
+    </Suspense>
+  );
+}
+
+function Listado() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const clase: "compras" | "ventas" = params.get("clase") === "ventas" ? "ventas" : "compras";
   const [soloPendientes, setSoloPendientes] = useState(false);
   const [filas, setFilas] = useState<Comprobante[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
@@ -143,7 +159,9 @@ export default function Comprobantes() {
               <button
                 key={c}
                 onClick={() => {
-                  setClase(c);
+                  router.replace(c === "ventas" ? "/comprobantes?clase=ventas" : "/comprobantes", {
+                    scroll: false,
+                  });
                   setCargando(true);
                 }}
                 className={`px-3 py-2 first:rounded-l-md last:rounded-r-md ${

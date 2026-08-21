@@ -170,7 +170,7 @@ function PorVoz() {
   }
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5">
+    <section id="voz" className="scroll-mt-4 rounded-lg border border-slate-200 bg-white p-5">
       <h2 className="font-medium">Por voz o texto</h2>
       <p className="mt-1 text-sm text-slate-500">
         Por ejemplo: «pagué ciento veinte dólares de gasolina en Primax con la
@@ -437,7 +437,7 @@ function PorDocumento() {
   const hayResueltos = items.some((i) => i.estado === "listo" || i.estado === "duplicado");
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5">
+    <section id="documento" className="scroll-mt-4 rounded-lg border border-slate-200 bg-white p-5">
       <h2 className="font-medium">Por documento</h2>
       <p className="mt-1 text-sm text-slate-500">
         PDF, imagen, XML o CSV. Puedes soltar varios estados de cuenta a la vez:

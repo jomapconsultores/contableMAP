@@ -58,11 +58,17 @@ export default function Ajustes() {
         <p className="text-sm text-slate-500">Cargando…</p>
       ) : (
         <>
-          <SeccionEntidades entidades={entidades} alCrear={recargar} />
+          <div id="general" className="scroll-mt-4 space-y-6">
+            <SeccionEntidades entidades={entidades} alCrear={recargar} />
+            {entidades.length > 0 && (
+              <SeccionCuentas cuentas={cuentas} alCrear={recargar} />
+            )}
+          </div>
           {entidades.length > 0 && (
-            <SeccionCuentas cuentas={cuentas} alCrear={recargar} />
+            <div id="facturacion" className="scroll-mt-4">
+              <FacturacionElectronica />
+            </div>
           )}
-          {entidades.length > 0 && <FacturacionElectronica />}
         </>
       )}
     </div>
