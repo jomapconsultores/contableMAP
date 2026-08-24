@@ -119,6 +119,7 @@ const GRUPOS: Grupo[] = [
         texto: "Ajustes",
         icono: Settings,
         hijos: [
+          { href: "/ajustes#cuenta", texto: "Mi cuenta" },
           { href: "/ajustes#general", texto: "Entidad y cuentas" },
           { href: "/ajustes#facturacion", texto: "Facturación electrónica" },
         ],

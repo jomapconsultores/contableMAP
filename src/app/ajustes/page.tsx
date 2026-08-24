@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCarga } from "@/lib/carga";
 import FacturacionElectronica from "./facturacion-electronica";
+import MiCuenta from "./mi-cuenta";
 
 interface Entidad {
   id: string;
@@ -54,6 +55,13 @@ export default function Ajustes() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">Ajustes</h1>
+
+      {/* Va primero y fuera de la carga de entidades: cambiar la propia clave
+          no puede depender de tener una contabilidad ya configurada. */}
+      <div id="cuenta" className="scroll-mt-4">
+        <MiCuenta />
+      </div>
+
       {cargando ? (
         <p className="text-sm text-slate-500">Cargando…</p>
       ) : (
