@@ -1,0 +1,36 @@
+-- Roles propios de GoTrue y storage-api para la base `tributos`.
+--
+-- La imagen de Supabase crea `supabase_auth_admin` y `supabase_storage_admin`
+-- como roles del clúster, con una única contraseña: la que se fijó al
+-- inicializar el primer stack. Reutilizarlos aquí obligaría a compartir esa
+-- contraseña entre bases, y además les daría acceso a las dos —justo lo que el
+-- aislamiento pretende evitar—.
+--
+-- GoTrue y storage-api no exigen llamarse de una forma concreta: usan el
+-- usuario de su cadena de conexión y crean sus esquemas siendo dueños de
+-- ellos. Así que cada base tiene los suyos.
+
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'auth_admin_tr') then
+    create role auth_admin_tr with login createrole;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'storage_admin_tr') then
+    create role storage_admin_tr with login createrole;
+  end if;
+end $$;
+
+alter role auth_admin_tr    with password :'clave';
+alter role storage_admin_tr with password :'clave';
+
+-- Crear su esquema y trabajar dentro de esta base, y solo de esta.
+grant connect, create on database tributos to auth_admin_tr, storage_admin_tr;
+grant create, usage on schema public to auth_admin_tr, storage_admin_tr;
+
+-- Necesitan conceder permisos sobre lo que creen a los roles de la API.
+grant anon, authenticated, service_role to auth_admin_tr, storage_admin_tr;
+
+-- Y se retira el acceso de los roles compartidos, que no pintan nada aquí.
+revoke all on database tributos from supabase_auth_admin, supabase_storage_admin;
+
+select 'roles de servicio creados para tributos' as resultado;

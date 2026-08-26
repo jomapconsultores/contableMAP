@@ -1,0 +1,26 @@
+# Cabeceras de seguridad para todos los dominios.
+# Se aplica como middleware por defecto del entryPoint https, asi que cubre
+# tanto las aplicaciones como las APIs de las bases, sin tocar cada proyecto.
+#
+# Puesto el 24-ago-2026: 7 de 12 aplicaciones no enviaban ninguna cabecera de
+# seguridad (map, gestion, sistema, marketing, panel-marketing, proyectos,
+# multiagente). Las que ya las mandan por su cuenta no se rompen: Traefik
+# sobrescribe con el mismo valor.
+#
+# SAMEORIGIN y no DENY a proposito: DENY impediria incrustar una pagina en otra
+# del propio dominio, y no hay forma de saber desde fuera si alguna lo hace.
+http:
+  middlewares:
+    seguridad:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: false
+        contentTypeNosniff: true
+        browserXssFilter: false
+        referrerPolicy: "strict-origin-when-cross-origin"
+        customResponseHeaders:
+          X-Frame-Options: "SAMEORIGIN"
+          X-Permitted-Cross-Domain-Policies: "none"
+          X-Powered-By: ""
+          Server: ""

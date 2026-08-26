@@ -1,0 +1,181 @@
+# ---------------------------------------------------------------------------
+# Supabase self-hosted · tributos
+#
+# Sin servicio de base de datos propio: usa el PostgreSQL que ya sirve a
+# ContableMAP, Marketing y Proyectos, en una base separada y aislada.
+#
+# Aquí sí hacen falta los tres servicios: el proyecto de origen tiene 4
+# usuarios y 9 archivos en 3 buckets.
+# ---------------------------------------------------------------------------
+
+services:
+  auth:
+    image: supabase/gotrue:v2.189.0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9999/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL}
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://auth_admin_tr:${POSTGRES_PASSWORD}@contable-supabase-db-1:5432/${BASE}
+      GOTRUE_SITE_URL: ${SITE_URL}
+      GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS}
+      GOTRUE_DISABLE_SIGNUP: ${DISABLE_SIGNUP}
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: ${JWT_EXPIRY}
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_JWT_ISSUER: ${API_EXTERNAL_URL}/auth/v1
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: "false"
+      GOTRUE_EXTERNAL_PHONE_ENABLED: "false"
+      GOTRUE_SMS_AUTOCONFIRM: "true"
+      # Sin SMTP configurado, un alta que espere confirmación por correo deja
+      # al usuario sin poder entrar. Sigue en "true" hasta que haya SMTP.
+      GOTRUE_MAILER_AUTOCONFIRM: ${ENABLE_EMAIL_AUTOCONFIRM}
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL}
+      GOTRUE_SMTP_HOST: ${SMTP_HOST}
+      GOTRUE_SMTP_PORT: ${SMTP_PORT}
+      GOTRUE_SMTP_USER: ${SMTP_USER}
+      GOTRUE_SMTP_PASS: ${SMTP_PASS}
+      GOTRUE_SMTP_SENDER_NAME: ${SMTP_SENDER_NAME}
+      GOTRUE_MAILER_URLPATHS_INVITE: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_CONFIRMATION: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_RECOVERY: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: /auth/v1/verify
+    mem_limit: 128m
+    networks: [coolify]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=coolify
+      - "traefik.http.routers.tr-auth.rule=Host(`${SUPABASE_HOST}`) && PathPrefix(`/auth/v1`)"
+      - traefik.http.routers.tr-auth.entryPoints=https
+      - traefik.http.routers.tr-auth.tls=true
+      - traefik.http.routers.tr-auth.tls.certresolver=letsencrypt
+      - traefik.http.routers.tr-auth.middlewares=tr-auth-strip,tr-cors
+      - traefik.http.middlewares.tr-auth-strip.stripprefix.prefixes=/auth/v1
+      - traefik.http.services.tr-auth.loadbalancer.server.port=9999
+      # El middleware de CORS se declara en los tres servicios con las mismas
+      # etiquetas. Traefik las unifica, y así ningún router depende de que otro
+      # contenedor esté vivo para tener CORS: al reiniciar el conjunto, el que
+      # arranca primero ya lo encuentra definido.
+      - traefik.http.middlewares.tr-cors.headers.accessControlAllowOriginList=${SITE_URL}
+      - traefik.http.middlewares.tr-cors.headers.accessControlAllowMethods=GET,POST,PATCH,PUT,DELETE,OPTIONS,HEAD
+      - traefik.http.middlewares.tr-cors.headers.accessControlAllowHeaders=authorization,apikey,content-type,x-client-info,x-supabase-api-version,prefer,range,accept-profile,content-profile,cache-control,x-upsert
+      - traefik.http.middlewares.tr-cors.headers.accessControlAllowCredentials=true
+      - traefik.http.middlewares.tr-cors.headers.accessControlExposeHeaders=content-range,content-length,x-total-count
+      - traefik.http.middlewares.tr-cors.headers.accessControlMaxAge=86400
+      - traefik.http.middlewares.tr-cors.headers.addVaryHeader=true
+
+  rest:
+    image: postgrest/postgrest:v14.12
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "postgrest", "--ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+    environment:
+      PGRST_DB_URI: postgres://authenticator_tr:${POSTGRES_PASSWORD}@contable-supabase-db-1:5432/${BASE}
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_MAX_ROWS: 1000
+      PGRST_DB_EXTRA_SEARCH_PATH: public,extensions
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_ADMIN_SERVER_PORT: 3001
+      PGRST_ADMIN_SERVER_HOST: localhost
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
+      PGRST_APP_SETTINGS_JWT_EXP: ${JWT_EXPIRY}
+    command: ["postgrest"]
+    mem_limit: 192m
+    networks: [coolify]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=coolify
+      - "traefik.http.routers.tr-rest.rule=Host(`${SUPABASE_HOST}`) && PathPrefix(`/rest/v1`)"
+      - traefik.http.routers.tr-rest.entryPoints=https
+      - traefik.http.routers.tr-rest.tls=true
+      - traefik.http.routers.tr-rest.tls.certresolver=letsencrypt
+      - traefik.http.routers.tr-rest.middlewares=tr-rest-strip,tr-cors
+      - traefik.http.middlewares.tr-rest-strip.stripprefix.prefixes=/rest/v1
+      - traefik.http.services.tr-rest.loadbalancer.server.port=3000
+      # El middleware de CORS se declara en los tres servicios con las mismas
+      # etiquetas. Traefik las unifica, y así ningún router depende de que otro
+      # contenedor esté vivo para tener CORS: al reiniciar el conjunto, el que
+      # arranca primero ya lo encuentra definido.
+      - traefik.http.middlewares.tr-cors.headers.accessControlAllowOriginList=${SITE_URL}
+      - traefik.http.middlewares.tr-cors.headers.accessControlAllowMethods=GET,POST,PATCH,PUT,DELETE,OPTIONS,HEAD
+      - traefik.http.middlewares.tr-cors.headers.accessControlAllowHeaders=authorization,apikey,content-type,x-client-info,x-supabase-api-version,prefer,range,accept-profile,content-profile,cache-control,x-upsert
+      - traefik.http.middlewares.tr-cors.headers.accessControlAllowCredentials=true
+      - traefik.http.middlewares.tr-cors.headers.accessControlExposeHeaders=content-range,content-length,x-total-count
+      - traefik.http.middlewares.tr-cors.headers.accessControlMaxAge=86400
+      - traefik.http.middlewares.tr-cors.headers.addVaryHeader=true
+
+  storage:
+    image: supabase/storage-api:v1.60.4
+    restart: unless-stopped
+    healthcheck:
+      # 127.0.0.1 y no localhost: dentro del contenedor localhost resuelve a
+      # ::1 y storage-api solo escucha en IPv4, así que el healthcheck daría
+      # «connection refused» con el servicio perfectamente sano.
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:5000/status"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    environment:
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      POSTGREST_URL: http://rest:3000
+      AUTH_JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: postgres://storage_admin_tr:${POSTGRES_PASSWORD}@contable-supabase-db-1:5432/${BASE}
+      STORAGE_PUBLIC_URL: ${API_EXTERNAL_URL}
+      # Traefik entrega la ruta ya recortada; sin esto, storage firma enlaces
+      # que apuntan a rutas sin el prefijo /storage/v1.
+      REQUEST_ALLOW_X_FORWARDED_PATH: "true"
+      FILE_SIZE_LIMIT: 52428800
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      GLOBAL_S3_BUCKET: stub
+      TENANT_ID: stub
+      REGION: stub
+      ENABLE_IMAGE_TRANSFORMATION: "false"
+    volumes:
+      - ${DIR_STORAGE}:/var/lib/storage
+    # En reposo ronda los 172 MB y el límite de subida son 50 MB por archivo:
+    # con 256 el contenedor moriría justo al subir un documento grande.
+    mem_limit: 384m
+    networks: [coolify]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=coolify
+      - "traefik.http.routers.tr-storage.rule=Host(`${SUPABASE_HOST}`) && PathPrefix(`/storage/v1`)"
+      - traefik.http.routers.tr-storage.entryPoints=https
+      - traefik.http.routers.tr-storage.tls=true
+      - traefik.http.routers.tr-storage.tls.certresolver=letsencrypt
+      - traefik.http.routers.tr-storage.middlewares=tr-storage-strip,tr-cors
+      - traefik.http.middlewares.tr-storage-strip.stripprefix.prefixes=/storage/v1
+      - traefik.http.services.tr-storage.loadbalancer.server.port=5000
+      # Las mismas etiquetas de CORS que en auth y rest (ver nota allí).
+      - traefik.http.middlewares.tr-cors.headers.accessControlAllowOriginList=${SITE_URL}
+      - traefik.http.middlewares.tr-cors.headers.accessControlAllowMethods=GET,POST,PATCH,PUT,DELETE,OPTIONS,HEAD
+      - traefik.http.middlewares.tr-cors.headers.accessControlAllowHeaders=authorization,apikey,content-type,x-client-info,x-supabase-api-version,prefer,range,accept-profile,content-profile,cache-control,x-upsert
+      - traefik.http.middlewares.tr-cors.headers.accessControlAllowCredentials=true
+      - traefik.http.middlewares.tr-cors.headers.accessControlExposeHeaders=content-range,content-length,x-total-count
+      - traefik.http.middlewares.tr-cors.headers.accessControlMaxAge=86400
+      - traefik.http.middlewares.tr-cors.headers.addVaryHeader=true
+      # Redirección de http a https para el host de Supabase.
+      - "traefik.http.routers.tr-http.rule=Host(`${SUPABASE_HOST}`)"
+      - traefik.http.routers.tr-http.entryPoints=http
+      - traefik.http.routers.tr-http.middlewares=redirect-to-https
+
+networks:
+  coolify:
+    external: true

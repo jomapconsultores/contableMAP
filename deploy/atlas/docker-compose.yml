@@ -1,0 +1,65 @@
+# ---------------------------------------------------------------------------
+# atlas · un solo servicio
+#
+# El proyecto de origen no tiene usuarios en `auth` ni buckets en `storage`:
+# la aplicación habla con la base a través de PostgREST y nada más. Levantar
+# gotrue y storage-api aquí serían 70 MB gastados en servicios que nadie
+# llamaría.
+#
+# La base `marketing` vive en el PostgreSQL que ya sirve a ContableMAP. No
+# comparten nada más: rol de conexión propio, claves propias, y el acceso
+# cruzado entre ambas bases está revocado.
+# ---------------------------------------------------------------------------
+
+services:
+  rest:
+    image: postgrest/postgrest:v14.12
+    restart: unless-stopped
+    environment:
+      # Se conecta al contenedor de PostgreSQL por su nombre: los dos están en
+      # la red `coolify`, así que Docker lo resuelve.
+      PGRST_DB_URI: postgres://authenticator_at:${POSTGRES_PASSWORD}@contable-supabase-db-1:5432/${BASE}
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_MAX_ROWS: 5000
+      PGRST_DB_EXTRA_SEARCH_PATH: public,extensions
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_ADMIN_SERVER_PORT: 3001
+      PGRST_ADMIN_SERVER_HOST: localhost
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
+      PGRST_APP_SETTINGS_JWT_EXP: ${JWT_EXPIRY}
+    command: ["postgrest"]
+    healthcheck:
+      test: ["CMD", "postgrest", "--ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    mem_limit: 192m
+    networks: [coolify]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=coolify
+      - "traefik.http.routers.at-rest.rule=Host(`${SUPABASE_HOST}`) && PathPrefix(`/rest/v1`)"
+      - traefik.http.routers.at-rest.entryPoints=https
+      - traefik.http.routers.at-rest.tls=true
+      - traefik.http.routers.at-rest.tls.certresolver=letsencrypt
+      - traefik.http.routers.at-rest.middlewares=at-rest-strip,at-cors
+      - traefik.http.middlewares.at-rest-strip.stripprefix.prefixes=/rest/v1
+      - traefik.http.services.at-rest.loadbalancer.server.port=3000
+      # CORS: las tres aplicaciones de Marketing viven en dominios distintos
+      # del de la API, así que el navegador exige permiso explícito.
+      - traefik.http.middlewares.at-cors.headers.accessControlAllowOriginList=https://atlas.pensamiento-libre.org
+      - traefik.http.middlewares.at-cors.headers.accessControlAllowMethods=GET,POST,PATCH,PUT,DELETE,OPTIONS,HEAD
+      - traefik.http.middlewares.at-cors.headers.accessControlAllowHeaders=authorization,apikey,content-type,x-client-info,x-supabase-api-version,prefer,range,accept-profile,content-profile
+      - traefik.http.middlewares.at-cors.headers.accessControlAllowCredentials=true
+      - traefik.http.middlewares.at-cors.headers.accessControlExposeHeaders=content-range,content-length
+      - traefik.http.middlewares.at-cors.headers.accessControlMaxAge=86400
+      - traefik.http.middlewares.at-cors.headers.addVaryHeader=true
+      - "traefik.http.routers.at-http.rule=Host(`${SUPABASE_HOST}`)"
+      - traefik.http.routers.at-http.entryPoints=http
+      - traefik.http.routers.at-http.middlewares=redirect-to-https
+
+networks:
+  coolify:
+    external: true

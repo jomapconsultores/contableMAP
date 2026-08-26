@@ -42,3 +42,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# volcados de la migración: llevan la contabilidad entera en claro
+deploy/supabase/volcado-*/
+deploy/supabase/.clave-rol-migracion

@@ -1,0 +1,69 @@
+# ---------------------------------------------------------------------------
+# Pensamiento Libre (www.pensamiento-libre.org) · un solo servicio
+#
+# El proyecto de origen expone cinco tablas por PostgREST y nada más: no hay
+# usuarios en `auth` ni buckets en `storage`. Igual que en Marketing, levantar
+# gotrue y storage-api aquí sería gastar memoria en servicios que nadie llama.
+#
+# La base `pensamiento_libre` vive en el PostgreSQL que ya sirve a ContableMAP,
+# con rol de conexión propio (`authenticator_pl`), claves propias y el acceso
+# cruzado revocado.
+#
+# Aviso sobre la extracción: este proyecto no lo alcanza ningún token de
+# gestión, así que el esquema se reconstruyó desde el OpenAPI de PostgREST
+# —que da columnas, tipos y claves primarias, pero no índices, restricciones
+# CHECK, funciones ni triggers—. Si aparecen, hay que traerlos a mano.
+# ---------------------------------------------------------------------------
+
+services:
+  rest:
+    image: postgrest/postgrest:v14.12
+    restart: unless-stopped
+    environment:
+      PGRST_DB_URI: postgres://authenticator_pl:${POSTGRES_PASSWORD}@contable-supabase-db-1:5432/${BASE}
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_MAX_ROWS: 5000
+      PGRST_DB_EXTRA_SEARCH_PATH: public,extensions
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_ADMIN_SERVER_PORT: 3001
+      PGRST_ADMIN_SERVER_HOST: localhost
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
+      PGRST_APP_SETTINGS_JWT_EXP: ${JWT_EXPIRY}
+    command: ["postgrest"]
+    healthcheck:
+      test: ["CMD", "postgrest", "--ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    mem_limit: 192m
+    networks: [coolify]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=coolify
+      - "traefik.http.routers.pl-rest.rule=Host(`${SUPABASE_HOST}`) && PathPrefix(`/rest/v1`)"
+      - traefik.http.routers.pl-rest.entryPoints=https
+      - traefik.http.routers.pl-rest.tls=true
+      - traefik.http.routers.pl-rest.tls.certresolver=letsencrypt
+      - traefik.http.routers.pl-rest.middlewares=pl-rest-strip,pl-cors
+      - traefik.http.middlewares.pl-rest-strip.stripprefix.prefixes=/rest/v1
+      - traefik.http.services.pl-rest.loadbalancer.server.port=3000
+      # CORS: la web vive en otro dominio que la API, así que el navegador
+      # exige permiso explícito. Los prefijos `pl-` no se repiten en ningún
+      # otro stack: dos middlewares con el mismo nombre y distinto valor hacen
+      # que Traefik descarte los dos y todo responda 503.
+      - traefik.http.middlewares.pl-cors.headers.accessControlAllowOriginList=https://www.pensamiento-libre.org,https://pensamiento-libre.org
+      - traefik.http.middlewares.pl-cors.headers.accessControlAllowMethods=GET,POST,PATCH,PUT,DELETE,OPTIONS,HEAD
+      - traefik.http.middlewares.pl-cors.headers.accessControlAllowHeaders=authorization,apikey,content-type,x-client-info,x-supabase-api-version,prefer,range,accept-profile,content-profile
+      - traefik.http.middlewares.pl-cors.headers.accessControlAllowCredentials=true
+      - traefik.http.middlewares.pl-cors.headers.accessControlExposeHeaders=content-range,content-length
+      - traefik.http.middlewares.pl-cors.headers.accessControlMaxAge=86400
+      - traefik.http.middlewares.pl-cors.headers.addVaryHeader=true
+      - "traefik.http.routers.pl-http.rule=Host(`${SUPABASE_HOST}`)"
+      - traefik.http.routers.pl-http.entryPoints=http
+      - traefik.http.routers.pl-http.middlewares=redirect-to-https
+
+networks:
+  coolify:
+    external: true
