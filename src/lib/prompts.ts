@@ -32,6 +32,11 @@ Cómo determinar la naturaleza de cada movimiento:
 
 Reglas de extracción:
 - Devuelve el monto siempre como número positivo; el signo lo lleva la naturaleza.
+- "descripcion" es el texto que identifica el movimiento —el establecimiento o
+  el concepto—, nunca el código del tipo de operación. Muchos estados traen una
+  columna aparte con CONS., PAGO, INT, N/D, CARG, DIF o AV: esa columna dice
+  qué clase de operación es, no cuál fue. Si la copias en "descripcion", el
+  movimiento queda sin identificar y no sirve para nada.
 - "comercio" es el nombre del establecimiento limpio: sin códigos de terminal,
   sin número de local, sin ciudad ni país, sin la cadena de referencia. Por
   ejemplo, de "SUPERMAXI QUITO 6 *1234 EC" el comercio es "SUPERMAXI".
