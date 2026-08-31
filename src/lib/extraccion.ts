@@ -37,7 +37,7 @@ export async function extraerExtracto(
     esquema: ExtractoExtraido,
     maxTokens: 64000,
     contenido: [
-      bloqueArchivo(base64, mimeType),
+      await bloqueArchivo(base64, mimeType),
       {
         type: "text",
         text: `Este documento es un ${ETIQUETA[tipo]}. Extrae la cabecera y todos los movimientos del período.`,
@@ -56,7 +56,7 @@ export async function extraerFactura(
     esquema: FacturaExtraida,
     maxTokens: 16000,
     contenido: [
-      bloqueArchivo(base64, mimeType),
+      await bloqueArchivo(base64, mimeType),
       {
         type: "text",
         text: `Este documento es un ${ETIQUETA[tipo]}. Extrae todos sus datos tributarios.`,
@@ -74,7 +74,7 @@ export async function extraerRolPago(
     esquema: RolPagoExtraido,
     maxTokens: 16000,
     contenido: [
-      bloqueArchivo(base64, mimeType),
+      await bloqueArchivo(base64, mimeType),
       { type: "text", text: "Extrae los datos de este rol de pago." },
     ],
   });

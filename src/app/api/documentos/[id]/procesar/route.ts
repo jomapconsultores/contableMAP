@@ -65,6 +65,10 @@ export async function POST(
       let uso: Uso;
       let extraccion: unknown;
       let duplicado = false;
+      // Avisos del modelo: totales que no cuadran, páginas ilegibles, cifras
+      // dudosas de la transcripción. Viajan hasta la pantalla porque un aviso
+      // que solo queda en la base de datos no lo lee nadie.
+      let observaciones: string[] = [];
 
       if (ES_EXTRACTO.includes(doc.tipo)) {
         const r = await procesarExtracto(sb, entidadId, doc, base64, mime);
@@ -72,6 +76,7 @@ export async function POST(
         uso = r.uso;
         extraccion = r.extraccion;
         duplicado = r.duplicado;
+        observaciones = r.observaciones;
       } else if (doc.tipo === "FACTURA_COMPRA" || doc.tipo === "FACTURA_VENTA") {
         const r = await procesarFactura(sb, entidadId, doc, base64, mime);
         resumen = r.resumen;
@@ -103,7 +108,7 @@ export async function POST(
 
       await registrarIA(sb, entidadId, userId, "EXTRACCION_DOC", uso, id);
 
-      return { id, estado: "EXTRAIDO", resumen, duplicado };
+      return { id, estado: "EXTRAIDO", resumen, duplicado, observaciones };
     } catch (e) {
       const mensaje = e instanceof Error ? e.message : "Error desconocido";
       await sb
@@ -252,7 +257,13 @@ async function procesarExtracto(
         cuentaResuelta +
         (datos.observaciones.length ? ` · ${datos.observaciones.length} observaciones` : "");
 
-  return { resumen, uso, extraccion: datos, duplicado: nuevas.length === 0 && omitidas > 0 };
+  return {
+    resumen,
+    uso,
+    extraccion: datos,
+    duplicado: nuevas.length === 0 && omitidas > 0,
+    observaciones: datos.observaciones,
+  };
 }
 
 async function procesarFactura(

@@ -40,6 +40,12 @@ Reglas de extracción:
 - Si una página está ilegible o un total no cuadra con la suma de los
   movimientos, no inventes: extrae lo que sí es legible y anótalo en
   "observaciones".
+- Muchos estados llegan escaneados y lo que lees es su transcripción, donde un
+  dígito puede venir mal leído. Antes de terminar, comprueba dos cosas: que la
+  suma de los movimientos concuerde con los subtotales impresos, y que
+  "saldo_anterior" más los movimientos dé "saldo_actual". Cuando algo no cuadre,
+  di en "observaciones" qué línea sospechas y por cuánto difiere, en vez de
+  ajustar cifras para que encajen.
 - No omitas movimientos pequeños ni repetidos.`;
 
 export const SISTEMA_FACTURA = `Extraes los datos de comprobantes de venta electrónicos

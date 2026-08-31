@@ -56,6 +56,21 @@ numeración.
 pantalla de revisión, y todo movimiento guarda con qué confianza y por qué vía
 (`MAPA`, `IA` o `MANUAL`) se clasificó. Por debajo de 0,7 se marca para revisar.
 
+**Primero se transcribe, después se estructura.** Los estados de cuenta llegan
+escaneados, sin capa de texto, y pedirle a un modelo de chat que los lea con
+visión sale caro y se equivoca en lo único que no puede fallar: las cifras. En
+las pruebas leyó `46,50` donde decía `46,80`. Ahora cada PDF o imagen pasa
+primero por el OCR de Mistral, que devuelve el extracto como tablas de markdown,
+y el modelo solo tiene que estructurar texto ya leído. Es más exacto, más
+barato, y deja de exigir un modelo con visión.
+
+El OCR tampoco es infalible —confunde algún dígito suelto—, así que el prompt
+de extracción le pide al modelo dos comprobaciones aritméticas sobre el propio
+documento: que la suma de los movimientos concuerde con los subtotales impresos
+y que `saldo_anterior` más los movimientos dé `saldo_actual`. Lo que no cuadra
+se anota en `observaciones` **y se muestra en la pantalla de carga**, junto al
+documento. Un aviso que solo queda en la base de datos no lo lee nadie.
+
 ## Pruebas
 
 ```bash
@@ -108,7 +123,8 @@ Copia `.env.example` a `.env.local` y complétalo:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Clave pública |
 | `SUPABASE_SERVICE_ROLE_KEY` | Solo servidor: tareas que deben saltar RLS |
 | `MISTRAL_API_KEY` | Extracción, clasificación e interpretación de voz |
-| `MISTRAL_MODEL` | Opcional; fija un solo modelo para todo. Sin él, el sistema elige `mistral-large-latest` para la extracción y `mistral-medium-latest` para clasificación y voz |
+| `MISTRAL_MODEL` | Opcional; fija un solo modelo para todo. Sin él, el sistema usa `mistral-medium-latest`, y `mistral-small-latest` en las tareas de bajo esfuerzo |
+| `MISTRAL_OCR_MODEL` | Opcional; modelo que transcribe PDF e imágenes antes de estructurarlos. Por defecto `mistral-ocr-latest` |
 | `SRI_CERT_SECRET` | Cifra la contraseña del certificado de firma. Mínimo 16 caracteres y distinta por entorno; si cambia hay que volver a subir el `.p12` |
 
 ### 3. Desarrollo

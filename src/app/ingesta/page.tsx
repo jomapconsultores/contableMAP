@@ -314,6 +314,8 @@ interface ItemCarga {
   file: File;
   estado: EstadoItem;
   mensaje: string;
+  /** Avisos de la extracción: totales que no cuadran, cifras dudosas. */
+  observaciones?: string[];
 }
 
 const ETIQUETA_ESTADO: Record<EstadoItem, string> = {
@@ -422,6 +424,7 @@ function PorDocumento() {
         actualizar(item.id, {
           estado: jsonProceso.datos.duplicado ? "duplicado" : "listo",
           mensaje: jsonProceso.datos.resumen,
+          observaciones: jsonProceso.datos.observaciones ?? [],
         });
       } catch (e) {
         actualizar(item.id, {
@@ -547,6 +550,13 @@ function PorDocumento() {
                   >
                     {it.mensaje}
                   </div>
+                )}
+                {it.observaciones && it.observaciones.length > 0 && (
+                  <ul className="mt-1 space-y-0.5 border-l-2 border-amber-300 pl-2 text-xs text-amber-800">
+                    {it.observaciones.map((o, i) => (
+                      <li key={i}>{o}</li>
+                    ))}
+                  </ul>
                 )}
               </div>
               <EstadoBadge estado={it.estado} />
