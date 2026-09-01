@@ -16,15 +16,26 @@ export const maxDuration = 300;
 
 const ES_EXTRACTO = ["ESTADO_TARJETA", "ESTADO_BANCO", "ESTADO_COOPERATIVA"];
 
-/** Huella estable de una línea de extracto, para no duplicar al recargar. */
+/**
+ * Huella estable de una línea de extracto, para no duplicar al recargar.
+ *
+ * La referencia forma parte de la huella y no es un adorno: sin ella, dos
+ * movimientos legítimos idénticos del mismo día —dos retiros de 200,00 en el
+ * mismo cajero, dos compras iguales en la misma tienda— comparten huella y el
+ * segundo desaparece en silencio al cargarse. Pasó: la cuenta cuadraba menos
+ * 200,00 contra el saldo impreso del extracto.
+ */
 function huella(
   fecha: string,
   descripcion: string,
   monto: number,
   naturaleza: string,
+  referencia: string | null,
 ): string {
   return createHash("sha256")
-    .update(`${fecha}|${descripcion.trim().toUpperCase()}|${monto.toFixed(2)}|${naturaleza}`)
+    .update(
+      `${fecha}|${descripcion.trim().toUpperCase()}|${monto.toFixed(2)}|${naturaleza}|${referencia ?? ""}`,
+    )
     .digest("hex")
     .slice(0, 32);
 }
@@ -180,7 +191,7 @@ async function procesarExtracto(
         naturaleza: m.naturaleza,
         monto: m.monto,
         moneda: m.moneda ?? "USD",
-        hash_linea: huella(fecha, m.descripcion, m.monto, m.naturaleza),
+        hash_linea: huella(fecha, m.descripcion, m.monto, m.naturaleza, m.referencia ?? null),
       };
     })
     .filter((f): f is NonNullable<typeof f> => f !== null);
