@@ -98,6 +98,10 @@ export function firmarXml(
   const nombreCert = `Certificate${idCert}`;
   const nombreSignedProps = `${nombreFirma}-SignedProperties${idSignedProps}`;
   const nombreReferencia = `Reference-ID-${idReferencia}`;
+  // Los atributos Id son de tipo ID, y un ID es un NCName: no puede empezar por
+  // dígito. Con el número pelado el SRI devolvía el comprobante con
+  // «'181011' is not a valid value for 'NCName'».
+  const nombreRefSignedProps = `Reference-SignedProperties-${idRefSignedProps}`;
 
   // --- Referencia 1: el comprobante entero, sin la firma ------------------
   const digestComprobante = sha1Base64(Buffer.from(cuerpo, "utf8"));
@@ -151,7 +155,7 @@ export function firmarXml(
   const signedInfoInterior =
     `<ds:CanonicalizationMethod Algorithm="${ALG_C14N}"></ds:CanonicalizationMethod>` +
     `<ds:SignatureMethod Algorithm="${ALG_RSA_SHA1}"></ds:SignatureMethod>` +
-    `<ds:Reference Id="${idRefSignedProps}" Type="http://uri.etsi.org/01903#SignedProperties" URI="#${nombreSignedProps}">` +
+    `<ds:Reference Id="${nombreRefSignedProps}" Type="http://uri.etsi.org/01903#SignedProperties" URI="#${nombreSignedProps}">` +
     `<ds:DigestMethod Algorithm="${ALG_SHA1}"></ds:DigestMethod>` +
     `<ds:DigestValue>${digestSignedProps}</ds:DigestValue>` +
     `</ds:Reference>` +

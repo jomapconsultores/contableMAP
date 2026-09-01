@@ -18,6 +18,7 @@ import { claveAcceso, digitoVerificador, claveAccesoValida } from "../../src/lib
 import { generarXmlFactura, calcularTotales, type DatosFactura } from "../../src/lib/sri/xml";
 import { firmarXml } from "../../src/lib/sri/firma";
 import { leerP12, cifrar, descifrar } from "../../src/lib/sri/certificado";
+import { leerMensajes } from "../../src/lib/sri/ws";
 import { codigoBarras128 } from "../../src/lib/sri/codigo-barras";
 import { generarRide } from "../../src/lib/sri/ride";
 
@@ -344,4 +345,39 @@ test("el RIDE avisa cuando la factura todavía no está autorizada", () => {
   assert.ok(!autorizada.includes("AMBIENTE DE PRUEBAS"));
   // El total con dos decimales, como manda el comprobante
   assert.ok(autorizada.includes("$ 115.00"));
+});
+
+test("el error del SRI llega con su texto, no solo con el código", () => {
+  // Respuesta literal de la recepción de producción. El <mensaje> con el texto
+  // va anidado dentro del <mensaje> que agrupa los campos: si la lectura se
+  // corta en el cierre del interno, el error llega mudo y no hay forma de
+  // saber qué rechazó el SRI.
+  const respuesta =
+    "<soap:Envelope><soap:Body><RespuestaRecepcionComprobante><estado>DEVUELTA</estado>" +
+    "<comprobantes><comprobante><claveAcceso>3108202601171030874100120010010000000082805908410</claveAcceso>" +
+    "<mensajes><mensaje>" +
+    "<identificador>35</identificador>" +
+    "<mensaje>ARCHIVO NO CUMPLE ESTRUCTURA XML</mensaje>" +
+    "<informacionAdicional>Se encontró el siguiente error en la estructura del comprobante: " +
+    "cvc-datatype-valid.1.2.1: '181011' is not a valid value for 'NCName'..</informacionAdicional>" +
+    "<tipo>ERROR</tipo>" +
+    "</mensaje></mensajes></comprobante></comprobantes></RespuestaRecepcionComprobante></soap:Body></soap:Envelope>";
+
+  const [m] = leerMensajes(respuesta);
+  assert.equal(m.identificador, "35");
+  assert.equal(m.mensaje, "ARCHIVO NO CUMPLE ESTRUCTURA XML");
+  assert.equal(m.tipo, "ERROR");
+  assert.match(m.informacionAdicional ?? "", /NCName/);
+});
+
+test("los identificadores de la firma son NCName válidos", () => {
+  // Un atributo Id es de tipo ID, y un ID es un NCName: no puede empezar por
+  // dígito. Con un número pelado el SRI devuelve el comprobante entero.
+  const cert = leerP12(certificadoDePrueba(), "clave123");
+  const firmado = firmarXml(generarXmlFactura(DATOS).xml, cert);
+  const ids = [...firmado.matchAll(/\sId="([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(ids.length >= 5, "la firma debe llevar varios identificadores");
+  for (const valor of ids) {
+    assert.match(valor, /^[A-Za-z_]/, `el Id "${valor}" empieza por dígito y el XSD lo rechaza`);
+  }
 });

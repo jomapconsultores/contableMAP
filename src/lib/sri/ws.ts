@@ -10,12 +10,14 @@ import { endpoints } from "./catalogos";
  */
 
 export class ErrorSri extends Error {
-  constructor(
-    mensaje: string,
-    public readonly reintentable = false,
-  ) {
+  // Campo declarado y asignado en el cuerpo, no como propiedad de parámetro:
+  // así Node ejecuta este módulo quitando tipos y las pruebas pueden usarlo.
+  readonly reintentable: boolean;
+
+  constructor(mensaje: string, reintentable = false) {
     super(mensaje);
     this.name = "ErrorSri";
+    this.reintentable = reintentable;
   }
 }
 
@@ -65,17 +67,35 @@ const desescapar = (v: string) =>
     .replace(/&amp;/g, "&")
     .trim();
 
-function leerMensajes(xml: string): MensajeSri[] {
-  return etiquetas(xml, "mensaje")
-    .filter((m) => /<(?:[\w.-]+:)?identificador/.test(m) || /<(?:[\w.-]+:)?tipo/.test(m))
-    .map((m) => ({
-      identificador: desescapar(etiqueta(m, "identificador") ?? ""),
-      mensaje: desescapar(etiquetas(m, "mensaje")[0] ?? ""),
-      informacionAdicional: etiqueta(m, "informacionAdicional")
-        ? desescapar(etiqueta(m, "informacionAdicional") as string)
+/**
+ * El SRI anida un `<mensaje>` con el texto dentro del `<mensaje>` que agrupa
+ * los campos del error. Una captura no codiciosa sobre el nombre repetido se
+ * corta en el cierre del interno y devuelve el bloque partido: se leía el
+ * identificador y se perdían el texto y la información adicional, que es donde
+ * el SRI dice qué está mal. Se delimita el bloque por `<identificador>` para
+ * que el `</mensaje>` que lo cierra sea siempre el de fuera.
+ */
+export function leerMensajes(xml: string): MensajeSri[] {
+  // Se recorre por `<identificador>`, que aparece una vez por error y nunca
+  // anidado, y se toma como ventana lo que va hasta el siguiente. Así el
+  // `<mensaje>` interior se lee sin depender de emparejar dos etiquetas con el
+  // mismo nombre, que es donde se perdía el texto.
+  const marcas = [...xml.matchAll(/<(?:[\w.-]+:)?identificador(?:\s[^>]*)?>/g)];
+
+  return marcas.map((marca, i) => {
+    const desde = marca.index ?? 0;
+    const hasta = i + 1 < marcas.length ? (marcas[i + 1].index ?? xml.length) : xml.length;
+    const ventana = xml.slice(desde, hasta);
+
+    return {
+      identificador: desescapar(etiqueta(ventana, "identificador") ?? ""),
+      mensaje: desescapar(etiqueta(ventana, "mensaje") ?? ""),
+      informacionAdicional: etiqueta(ventana, "informacionAdicional")
+        ? desescapar(etiqueta(ventana, "informacionAdicional") as string)
         : null,
-      tipo: desescapar(etiqueta(m, "tipo") ?? "ERROR"),
-    }));
+      tipo: desescapar(etiqueta(ventana, "tipo") ?? "ERROR"),
+    };
+  });
 }
 
 /** Una llamada SOAP 1.1 con su tiempo de espera. */
