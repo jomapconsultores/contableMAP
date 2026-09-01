@@ -195,6 +195,9 @@ supabase/migrations/   0001 núcleo · 0002 contabilidad · 0003 documentos
                        0007 RLS · 0008 semillas · 0009 estados financieros
                        0010 deduplicación de documentos
                        0011 facturación electrónica
+                       0012 recobros · 0013 traspasos · 0014 acreditación
+                       0015 huella con referencia
+                       0016 una cuenta contable por cuenta financiera
 src/lib/               ia · esquemas · prompts · extraccion · clasificacion
                        contabilizacion · cuentas · api · fechas · formato
                        carga · supabase/

@@ -126,7 +126,13 @@ export default function Informes() {
             <Fila k="(−) Gastos no deducibles" v={-pyg.gastos_no_deducibles} />
             <Fila k="Resultado del ejercicio" v={pyg.resultado_ejercicio} destacado />
           </dl>
-          <Desglose detalle={pyg.detalle} />
+          <Desglose
+            detalle={pyg.detalle}
+            grupos={[
+              { titulo: "Ingresos", tipos: ["INGRESO"], signo: -1 },
+              { titulo: "Costos y gastos", tipos: ["COSTO", "GASTO"], signo: 1 },
+            ]}
+          />
         </section>
       )}
 
@@ -154,7 +160,14 @@ export default function Informes() {
               <Fila k="Pasivo + patrimonio" v={balance.pasivo_mas_patrimonio} destacado />
             </dl>
           </div>
-          <Desglose detalle={balance.detalle} />
+          <Desglose
+            detalle={balance.detalle}
+            grupos={[
+              { titulo: "Activos", tipos: ["ACTIVO"], signo: 1 },
+              { titulo: "Pasivos", tipos: ["PASIVO"], signo: -1 },
+              { titulo: "Patrimonio", tipos: ["PATRIMONIO"], signo: -1 },
+            ]}
+          />
         </section>
       )}
     </div>
@@ -170,24 +183,60 @@ function Fila({ k, v, destacado }: { k: string; v: number; destacado?: boolean }
   );
 }
 
-function Desglose({ detalle }: { detalle: Detalle[] }) {
+interface Grupo {
+  titulo: string;
+  tipos: string[];
+  /** Los saldos llegan en su naturaleza contable: −1 los que son de haber. */
+  signo: number;
+}
+
+/**
+ * El desglose se lee por grupo —ingresos, gastos, activos, pasivos— y dentro de
+ * cada uno cuenta por cuenta. Ahora que cada banco, cada libreta y cada tarjeta
+ * tienen la suya, esta es la lista donde se ve cuánto hay o se debe en cada una.
+ */
+function Desglose({ detalle, grupos }: { detalle: Detalle[]; grupos: Grupo[] }) {
   if (!detalle?.length) return null;
+
+  const bloques = grupos
+    .map((g) => ({ ...g, filas: detalle.filter((d) => g.tipos.includes(d.tipo)) }))
+    .filter((g) => g.filas.length > 0);
+
   return (
-    <details className="mt-4">
+    <details className="mt-4" open>
       <summary className="cursor-pointer text-sm text-slate-500">
-        Ver desglose por cuenta ({detalle.length})
+        Desglose por cuenta ({detalle.length})
       </summary>
-      <table className="mt-2 w-full text-sm">
-        <tbody className="divide-y divide-slate-100">
-          {detalle.map((d) => (
-            <tr key={d.codigo}>
-              <td className="py-1 pr-3 font-mono text-xs text-slate-400">{d.codigo}</td>
-              <td className="py-1">{d.cuenta}</td>
-              <td className="py-1 text-right tabular-nums">{usd(d.saldo)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="mt-2 grid gap-4 sm:grid-cols-2">
+        {bloques.map((g) => {
+          const total = g.filas.reduce((s, d) => s + Number(d.saldo) * g.signo, 0);
+          return (
+            <div key={g.titulo}>
+              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {g.titulo}
+              </h3>
+              <table className="w-full text-sm">
+                <tbody className="divide-y divide-slate-100">
+                  {g.filas.map((d) => (
+                    <tr key={d.codigo}>
+                      <td className="py-1 pr-3 font-mono text-xs text-slate-400">{d.codigo}</td>
+                      <td className="py-1">{d.cuenta}</td>
+                      <td className="py-1 text-right tabular-nums">
+                        {usd(Number(d.saldo) * g.signo)}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="border-t border-slate-300 font-semibold">
+                    <td className="py-1" />
+                    <td className="py-1">Total {g.titulo.toLowerCase()}</td>
+                    <td className="py-1 text-right tabular-nums">{usd(total)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          );
+        })}
+      </div>
     </details>
   );
 }

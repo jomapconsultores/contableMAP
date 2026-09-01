@@ -30,7 +30,8 @@ export async function POST(request: Request) {
 
     const { sb, entidadId } = await contexto();
 
-    // Cuenta contable por defecto según el tipo de instrumento.
+    // Agrupadora según el tipo de instrumento. La cuenta contable propia —una
+    // por cada cuenta financiera— la crea un trigger de la base al insertar.
     const codigo =
       tipo === "TARJETA_CREDITO"
         ? "2.1.03"

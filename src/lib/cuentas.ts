@@ -72,6 +72,9 @@ function mismoNumero(a: string | null, b: string | null): boolean {
   return x.slice(-4) === y.slice(-4);
 }
 
+// Agrupadora bajo la que colgará la cuenta. La cuenta contable propia la crea
+// un trigger de la base al insertar la cuenta financiera, así que aquí basta
+// con decir la familia: nadie acaba compartiendo saldo con otra cuenta.
 const CUENTA_CONTABLE: Record<string, string> = {
   BANCO: "1.1.01.02",
   COOPERATIVA: "1.1.01.03",

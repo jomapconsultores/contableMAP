@@ -11,6 +11,10 @@ export const CUENTAS = {
   CAJA: "1.1.01.01",
   BANCOS: "1.1.01.02",
   COOPERATIVAS: "1.1.01.03",
+  // Bolsa del sueldo entre el rol y el extracto. Antes ese papel lo hacía
+  // «Bancos»; desde que cada cuenta financiera tiene la suya, «Bancos» es una
+  // cuenta de agrupación y no admite movimientos.
+  SUELDO_PENDIENTE: "1.1.01.98",
   CLIENTES: "1.1.02.01",
   DOC_COBRAR: "1.1.02.02",
   IVA_COMPRAS: "1.1.03.01",
@@ -171,18 +175,19 @@ async function cuentaDeFinanciera(
     throw new ErrorContable("No se encontró la cuenta financiera indicada.");
   }
 
+  // Cada cuenta financiera tiene la suya: se la da un trigger al crearla, así
+  // que aquí no hay respaldo que valga. Sin ella el asiento iría a una cuenta
+  // de agrupación —que la base rechaza— o, peor, mezclaría el saldo de once
+  // libretas en un solo renglón.
   const vinculada = unaFila<{ codigo: string }>(data.plan_cuentas);
-  const porDefecto =
-    data.tipo === "TARJETA_CREDITO"
-      ? CUENTAS.TARJETAS
-      : data.tipo === "COOPERATIVA"
-        ? CUENTAS.COOPERATIVAS
-        : data.tipo === "CAJA"
-          ? CUENTAS.CAJA
-          : CUENTAS.BANCOS;
+  if (!vinculada?.codigo) {
+    throw new ErrorContable(
+      `La cuenta «${data.nombre}» no tiene cuenta contable propia; asígnesela antes de contabilizar.`,
+    );
+  }
 
   return {
-    codigo: vinculada?.codigo ?? porDefecto,
+    codigo: vinculada.codigo,
     tipo: data.tipo as string,
     nombre: data.nombre as string,
   };
@@ -645,9 +650,14 @@ export async function contabilizarCartera(
   const cuentaCartera = CUENTA_CARTERA[doc.clase as string];
   if (!cuentaCartera) throw new ErrorContable(`Clase de cartera desconocida: ${doc.clase}`);
 
-  const contrapartida = doc.cuenta_id
-    ? (await sb.from("plan_cuentas").select("codigo").eq("id", doc.cuenta_id).single()).data?.codigo
-    : CUENTAS.BANCOS;
+  // La contrapartida hay que decirla: «Bancos» ya no vale como cajón de
+  // sastre, porque cada cuenta lleva su propio saldo.
+  if (!doc.cuenta_id) {
+    throw new ErrorContable("Indique la cuenta contra la que nace el documento.");
+  }
+  const contrapartida = (
+    await sb.from("plan_cuentas").select("codigo").eq("id", doc.cuenta_id).single()
+  ).data?.codigo;
 
   if (!contrapartida) throw new ErrorContable("No se resolvió la cuenta de contrapartida.");
 
@@ -708,9 +718,13 @@ export async function contabilizarAbono(
   if (!doc) throw new ErrorContable("El abono no está ligado a ningún documento.");
 
   const cuentaCartera = CUENTA_CARTERA[doc.clase];
-  const fin = abono.cuenta_financiera_id
-    ? await cuentaDeFinanciera(sb, abono.cuenta_financiera_id)
-    : { codigo: CUENTAS.BANCOS, nombre: "Bancos", tipo: "BANCO" };
+  // Sin cuenta no hay dónde apuntar el dinero. Antes caía en «Bancos», que
+  // sumaba a ciegas el saldo de todas; ahora cada una lleva el suyo y hay que
+  // decir cuál.
+  if (!abono.cuenta_financiera_id) {
+    throw new ErrorContable("Indique la cuenta por la que entró o salió el dinero.");
+  }
+  const fin = await cuentaDeFinanciera(sb, abono.cuenta_financiera_id);
 
   const monto = c(Number(abono.monto));
   const interes = c(Number(abono.interes ?? 0));
@@ -791,12 +805,12 @@ export async function contabilizarRolPago(
     );
   }
 
-  const cuentaCobro = rol.cuenta_financiera_id
-    ? (await cuentaDeFinanciera(sb, rol.cuenta_financiera_id)).codigo
-    : CUENTAS.BANCOS;
-
+  // El líquido queda siempre en la bolsa, nunca en la cuenta de destino: el
+  // dinero entra en la libreta cuando lo dice su extracto, y ese movimiento,
+  // clasificado como ACREDITACIÓN DE SUELDO, es el que vacía la bolsa. Debitar
+  // aquí la cuenta real dejaría el sueldo dos veces en ella.
   const lineas: Linea[] = [
-    { cuentaCodigo: cuentaCobro, detalle: "Sueldo acreditado", debe: liquido },
+    { cuentaCodigo: CUENTAS.SUELDO_PENDIENTE, detalle: "Sueldo acreditado", debe: liquido },
   ];
   if (iess > 0) {
     // El aporte personal lo retiene y lo remite el empleador: el trabajador no
