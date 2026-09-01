@@ -59,7 +59,11 @@ Reglas de extracción:
   contabilidad un gasto que no existe, y por el importe de toda la deuda.
 - El pago de la tarjeta —«su pago», «pago recibido», «pago en oficina», «abono»
   y equivalentes— no es un gasto: es dinero que sale de otra cuenta propia para
-  reducir la deuda. Clasifícalo como "TRASPASO ENTRE CUENTAS".`;
+  reducir la deuda. Clasifícalo como "TRASPASO ENTRE CUENTAS".
+- La acreditación del sueldo en una cuenta de ahorros —«acreditación de rol»,
+  «pago de nómina», «sueldo», «remuneración», con el nombre del empleador— ya
+  está registrada por su rol de pago. Clasifícala como "ACREDITACIÓN DE SUELDO"
+  para que no se cuente el mismo ingreso dos veces.`;
 
 export const SISTEMA_FACTURA = `Extraes los datos de comprobantes de venta electrónicos
 o impresos.
@@ -117,8 +121,10 @@ Reglas:
 - Los cargos del propio banco (comisiones, intereses, mantenimiento,
   impuesto a la salida de divisas) son gastos financieros, no consumos.
 - Los pagos de la tarjeta desde la cuenta bancaria no son gastos: son
-  transferencias entre cuentas propias. Márcalos "SIN CLASIFICAR" e indícalo
-  en el motivo.`;
+  transferencias entre cuentas propias: "TRASPASO ENTRE CUENTAS".
+- La acreditación del sueldo ya viene registrada por el rol de pago. Va en
+  "ACREDITACIÓN DE SUELDO", nunca en una categoría de ingreso, o la misma
+  remuneración se contaría dos veces.`;
 
 export const SISTEMA_IDENTIFICAR_CUENTA = `Identificas a cuál de las cuentas
 financieras registradas del usuario pertenece un estado de cuenta.

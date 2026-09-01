@@ -24,6 +24,7 @@ export const CUENTAS = {
   RET_RENTA_POR_PAGAR: "2.1.04.04",
   ISD_POR_PAGAR: "2.1.04.06",
   IESS_POR_PAGAR: "2.1.05",
+  APORTES_IESS: "6.1.02",
   INGRESO_SERVICIOS: "4.1.02",
   INGRESO_DEPENDENCIA: "4.2",
   OTROS_INGRESOS: "4.3",
@@ -798,7 +799,11 @@ export async function contabilizarRolPago(
     { cuentaCodigo: cuentaCobro, detalle: "Sueldo acreditado", debe: liquido },
   ];
   if (iess > 0) {
-    lineas.push({ cuentaCodigo: CUENTAS.IESS_POR_PAGAR, detalle: "Aporte personal IESS", debe: iess });
+    // El aporte personal lo retiene y lo remite el empleador: el trabajador no
+    // le queda debiendo nada al IESS. Llevarlo a «Obligaciones con el IESS»
+    // dejaba un pasivo con saldo deudor —una deuda en negativo— en el balance.
+    // Desde su contabilidad es un gasto que le rebaja la renta, y ahí va.
+    lineas.push({ cuentaCodigo: CUENTAS.APORTES_IESS, detalle: "Aporte personal IESS", debe: iess });
   }
   if (renta > 0) {
     lineas.push({
