@@ -1,3 +1,4 @@
+import { consultarRucs } from "./sri/ruc";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { consultar } from "./ia";
 import { LoteClasificado } from "./esquemas";
@@ -142,6 +143,20 @@ export async function clasificarLote(
     origen: string;
     confirmado: boolean;
   }[] = [];
+
+  // Lo que el mapa no reconoce y trae RUC se pregunta al catastro del SRI
+  // antes de molestar al modelo. La actividad económica declarada dice qué
+  // vende un proveedor mucho mejor que su nombre: «DIFARE» parece una
+  // ferretería y el SRI la describe como venta de productos farmacéuticos.
+  // Si el catastro no responde se sigue sin ella, como hasta ahora.
+  const sinActividad = pendientes.filter((m) => m.ruc && !m.actividad);
+  if (sinActividad.length > 0) {
+    const catastro = await consultarRucs(sinActividad.map((m) => m.ruc as string));
+    for (const m of sinActividad) {
+      const c = catastro.get(m.ruc as string);
+      if (c?.actividad) m.actividad = c.actividad;
+    }
+  }
 
   for (let i = 0; i < pendientes.length; i += TAMANO_LOTE) {
     const lote = pendientes.slice(i, i + TAMANO_LOTE);
