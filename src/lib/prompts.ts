@@ -51,7 +51,15 @@ Reglas de extracción:
   "saldo_anterior" más los movimientos dé "saldo_actual". Cuando algo no cuadre,
   di en "observaciones" qué línea sospechas y por cuánto difiere, en vez de
   ajustar cifras para que encajen.
-- No omitas movimientos pequeños ni repetidos.`;
+- No omitas movimientos pequeños ni repetidos.
+- Un movimiento es una transacción, no un total. «Saldo anterior», «saldo
+  actual», «total a pagar», «subtotal consumos» y demás renglones de resumen
+  van en los campos de cabecera —"saldo_anterior", "saldo_actual"— y **nunca**
+  en la lista de movimientos. Colar un saldo entre los movimientos mete en la
+  contabilidad un gasto que no existe, y por el importe de toda la deuda.
+- El pago de la tarjeta —«su pago», «pago recibido», «pago en oficina», «abono»
+  y equivalentes— no es un gasto: es dinero que sale de otra cuenta propia para
+  reducir la deuda. Clasifícalo como "TRASPASO ENTRE CUENTAS".`;
 
 export const SISTEMA_FACTURA = `Extraes los datos de comprobantes de venta electrónicos
 o impresos.
