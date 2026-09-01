@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { ErrorPeticion } from "@/lib/api";
+import { contabilizarVenta } from "@/lib/contabilizacion";
 import { claveAcceso, codigoNumericoAleatorio } from "./clave-acceso";
 import { leerP12, descifrar, ErrorCertificado, type Certificado } from "./certificado";
 import { firmarXml } from "./firma";
@@ -101,6 +102,10 @@ export interface ResultadoEmision {
   mensajes: { identificador: string; mensaje: string; informacionAdicional: string | null; tipo: string }[];
   total: number;
   xml_firmado?: string;
+  /** Asiento generado al autorizarse. Ausente si aún no está autorizada. */
+  asiento_id?: string;
+  /** Por qué no se pudo contabilizar una factura ya autorizada. */
+  error_contable?: string;
 }
 
 interface Emisor {
@@ -534,12 +539,15 @@ async function resolverAutorizacion(
       })
       .eq("id", ventaId);
 
+    const contable = await contabilizarAutorizada(sb, entidadId, ventaId);
+
     return {
       ...base,
       estado: "AUTORIZADA",
       autorizacion: auth.numeroAutorizacion ?? clave,
       fecha_autorizacion: auth.fechaAutorizacion,
       mensajes: auth.mensajes,
+      ...contable,
     };
   }
 
@@ -550,6 +558,34 @@ async function resolverAutorizacion(
     .eq("id", ventaId);
 
   return { ...base, estado, mensajes: auth.mensajes };
+}
+
+/**
+ * Contabiliza una factura recién autorizada.
+ *
+ * Una factura autorizada por el SRI no admite revisión: el documento ya existe
+ * con validez tributaria y su asiento está determinado —cliente al debe, el
+ * ingreso y el IVA al haber—, sin nada que un humano tenga que decidir. Dejarlo
+ * para después solo produce lo que produjo aquí: la primera factura emitida se
+ * quedó fuera del estado de resultados y del balance hasta que alguien se dio
+ * cuenta. Por eso se contabiliza sola, y la venta a crédito genera además su
+ * documento por cobrar en cartera.
+ *
+ * Si algo falla —una cuenta que no existe en el plan, un período cerrado— no se
+ * rompe la emisión: la factura ya está autorizada y eso es irreversible. Se
+ * devuelve el motivo para que la pantalla lo diga y se pueda contabilizar a
+ * mano desde Comprobantes.
+ */
+async function contabilizarAutorizada(
+  sb: SupabaseClient,
+  entidadId: string,
+  ventaId: string,
+): Promise<{ asiento_id?: string; error_contable?: string }> {
+  try {
+    return { asiento_id: await contabilizarVenta(sb, entidadId, ventaId) };
+  } catch (e) {
+    return { error_contable: e instanceof Error ? e.message : "No se pudo contabilizar." };
+  }
 }
 
 /**

@@ -169,6 +169,8 @@ function Formulario({ config, alEmitir }: { config: Config; alEmitir: () => Prom
     venta_id: string;
     autorizacion: string | null;
     mensajes: { tipo: string; mensaje: string; informacionAdicional?: string | null }[];
+    asiento_id?: string;
+    error_contable?: string;
     xml_firmado?: string;
   } | null>(null);
   const [ocupado, setOcupado] = useState<null | "emitir" | "simular">(null);
@@ -528,6 +530,8 @@ function Resultado({
     venta_id: string;
     autorizacion: string | null;
     mensajes: { tipo: string; mensaje: string; informacionAdicional?: string | null }[];
+    asiento_id?: string;
+    error_contable?: string;
   };
 }) {
   const bien = resultado.estado === "AUTORIZADA";
@@ -550,6 +554,15 @@ function Resultado({
             </li>
           ))}
         </ul>
+      )}
+      {resultado.error_contable && (
+        <p className="mt-2 rounded border border-amber-300 bg-amber-100 px-2 py-1.5 text-xs text-amber-900">
+          La factura está autorizada, pero no se pudo contabilizar sola:{" "}
+          {resultado.error_contable} Contabilízala desde Comprobantes.
+        </p>
+      )}
+      {resultado.asiento_id && (
+        <p className="mt-2 text-xs">Contabilizada automáticamente, con su cuenta por cobrar en cartera.</p>
       )}
       <div className="mt-2 flex gap-3 text-xs">
         <a className="underline" href={`/api/sri/facturas/${resultado.venta_id}/ride`} target="_blank">
