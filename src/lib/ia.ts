@@ -297,6 +297,14 @@ export async function consultar<T extends z.ZodType>({
     if (respuesta.status === 401) {
       throw new ErrorIA("La clave de Mistral es inválida o expiró.");
     }
+    // Mistral responde 402 sin cuerpo cuando la cuenta se queda sin saldo. El
+    // documento queda subido y en ERROR: basta recargar y reprocesarlo.
+    if (respuesta.status === 402) {
+      throw new ErrorIA(
+        "La cuenta de Mistral se quedó sin saldo. Recarga en console.mistral.ai " +
+          "y vuelve a procesar el documento; ya está subido, no hace falta cargarlo otra vez.",
+      );
+    }
     throw new ErrorIA(`El servicio de IA respondió con error: ${detalle}`);
   }
 
