@@ -10,6 +10,12 @@ interface Detalle {
   tipo: string;
   subtipo: string | null;
   saldo: number;
+  // El desglose llega en árbol: cada cuenta con su rama y su nivel. Son
+  // opcionales porque una base sin la migración 0017 aún devuelve la lista
+  // plana de cuentas finales, que se pinta igual, sin nada que desplegar.
+  nivel?: number;
+  padre?: string | null;
+  hoja?: boolean;
 }
 
 interface Resultados {
@@ -192,14 +198,35 @@ interface Grupo {
 
 /**
  * El desglose se lee por grupo —ingresos, gastos, activos, pasivos— y dentro de
- * cada uno cuenta por cuenta. Ahora que cada banco, cada libreta y cada tarjeta
- * tienen la suya, esta es la lista donde se ve cuánto hay o se debe en cada una.
+ * cada uno por ramas: «Cooperativas» dice cuánto suman las once libretas y se
+ * despliega para verlas una a una. Lo mismo con los bancos, las tarjetas o
+ * cualquier familia de gastos.
+ *
+ * Las cuentas de los primeros niveles vienen abiertas; las que agrupan cuentas
+ * concretas —una por banco, una por tarjeta— empiezan plegadas para que el
+ * informe se lea de un vistazo y se abra solo lo que interesa.
  */
 function Desglose({ detalle, grupos }: { detalle: Detalle[]; grupos: Grupo[] }) {
+  const [abiertos, setAbiertos] = useState<Record<string, boolean>>({});
+
   if (!detalle?.length) return null;
 
+  const alternar = (codigo: string, abierto: boolean) =>
+    setAbiertos((a) => ({ ...a, [codigo]: !abierto }));
+
   const bloques = grupos
-    .map((g) => ({ ...g, filas: detalle.filter((d) => g.tipos.includes(d.tipo)) }))
+    .map((g) => {
+      const filas = detalle.filter((d) => g.tipos.includes(d.tipo));
+      const codigos = new Set(filas.map((d) => d.codigo));
+      const hijosDe = new Map<string, Detalle[]>();
+      for (const d of filas) {
+        if (!d.padre || !codigos.has(d.padre)) continue;
+        hijosDe.set(d.padre, [...(hijosDe.get(d.padre) ?? []), d]);
+      }
+      // Raíces del bloque: las que no cuelgan de otra cuenta del mismo grupo.
+      const raices = filas.filter((d) => !d.padre || !codigos.has(d.padre));
+      return { ...g, filas, hijosDe, raices };
+    })
     .filter((g) => g.filas.length > 0);
 
   return (
@@ -209,7 +236,7 @@ function Desglose({ detalle, grupos }: { detalle: Detalle[]; grupos: Grupo[] }) 
       </summary>
       <div className="mt-2 grid gap-4 sm:grid-cols-2">
         {bloques.map((g) => {
-          const total = g.filas.reduce((s, d) => s + Number(d.saldo) * g.signo, 0);
+          const total = g.raices.reduce((s, d) => s + Number(d.saldo) * g.signo, 0);
           return (
             <div key={g.titulo}>
               <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -217,14 +244,16 @@ function Desglose({ detalle, grupos }: { detalle: Detalle[]; grupos: Grupo[] }) 
               </h3>
               <table className="w-full text-sm">
                 <tbody className="divide-y divide-slate-100">
-                  {g.filas.map((d) => (
-                    <tr key={d.codigo}>
-                      <td className="py-1 pr-3 font-mono text-xs text-slate-400">{d.codigo}</td>
-                      <td className="py-1">{d.cuenta}</td>
-                      <td className="py-1 text-right tabular-nums">
-                        {usd(Number(d.saldo) * g.signo)}
-                      </td>
-                    </tr>
+                  {g.raices.map((d) => (
+                    <Rama
+                      key={d.codigo}
+                      nodo={d}
+                      hijosDe={g.hijosDe}
+                      signo={g.signo}
+                      sangria={0}
+                      abiertos={abiertos}
+                      alternar={alternar}
+                    />
                   ))}
                   <tr className="border-t border-slate-300 font-semibold">
                     <td className="py-1" />
@@ -238,5 +267,63 @@ function Desglose({ detalle, grupos }: { detalle: Detalle[]; grupos: Grupo[] }) 
         })}
       </div>
     </details>
+  );
+}
+
+function Rama({
+  nodo,
+  hijosDe,
+  signo,
+  sangria,
+  abiertos,
+  alternar,
+}: {
+  nodo: Detalle;
+  hijosDe: Map<string, Detalle[]>;
+  signo: number;
+  sangria: number;
+  abiertos: Record<string, boolean>;
+  alternar: (codigo: string, abierto: boolean) => void;
+}) {
+  const hijos = hijosDe.get(nodo.codigo) ?? [];
+  const abierto = abiertos[nodo.codigo] ?? (nodo.nivel ?? 1) <= 3;
+
+  return (
+    <>
+      <tr className={hijos.length > 0 ? "font-medium" : undefined}>
+        <td className="py-1 pr-3 font-mono text-xs text-slate-400">{nodo.codigo}</td>
+        <td className="py-1" style={{ paddingLeft: sangria * 14 }}>
+          {hijos.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => alternar(nodo.codigo, abierto)}
+              className="text-left hover:underline"
+              aria-expanded={abierto}
+            >
+              <span className="mr-1 inline-block w-3 text-slate-400">
+                {abierto ? "▾" : "▸"}
+              </span>
+              {nodo.cuenta}
+              <span className="ml-1 text-xs text-slate-400">({hijos.length})</span>
+            </button>
+          ) : (
+            <span className="ml-4">{nodo.cuenta}</span>
+          )}
+        </td>
+        <td className="py-1 text-right tabular-nums">{usd(Number(nodo.saldo) * signo)}</td>
+      </tr>
+      {abierto &&
+        hijos.map((h) => (
+          <Rama
+            key={h.codigo}
+            nodo={h}
+            hijosDe={hijosDe}
+            signo={signo}
+            sangria={sangria + 1}
+            abiertos={abiertos}
+            alternar={alternar}
+          />
+        ))}
+    </>
   );
 }
