@@ -169,10 +169,19 @@ test("los totales se redondean por línea y agrupan por tarifa", () => {
 test("el XML sale en una sola línea y con el texto escapado", () => {
   const { xml } = generarXmlFactura(DATOS);
   assert.ok(!xml.includes("\n"), "el XML no puede llevar saltos de línea");
-  assert.ok(xml.startsWith('<factura id="comprobante" version="1.1.0">'));
+  assert.ok(xml.startsWith('<factura id="comprobante" version="2.1.0">'));
   assert.ok(xml.includes("Asesoría contable &amp; tributaria &lt;mensual&gt;"));
   assert.ok(xml.includes("<obligadoContabilidad>NO</obligadoContabilidad>"));
   assert.ok(!/<\w+\/>/.test(xml), "C14N no admite elementos vacíos autocerrados");
+  // La propina es opcional en 2.1.0 y el SRI devolvía el comprobante cuando
+  // iba en cero: se omite salvo que exista de verdad.
+  assert.ok(!xml.includes("<propina>"), "sin propina no debe aparecer el elemento");
+  const conPropina = generarXmlFactura({
+    ...DATOS,
+    propina: 5,
+    pagos: [{ formaPago: "20", total: 160 }],
+  }).xml;
+  assert.ok(conPropina.includes("<propina>5.00</propina>"), "con propina sí debe aparecer");
 });
 
 test("las formas de pago tienen que cuadrar con el total", () => {

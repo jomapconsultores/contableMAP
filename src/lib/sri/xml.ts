@@ -7,7 +7,8 @@ import {
 } from "./catalogos";
 
 /**
- * XML de la factura, esquema `factura_V1.1.0`.
+ * XML de la factura, esquema `factura_V2.1.0` — el que el SRI autoriza hoy
+ * para este emisor. Con 1.1.0 la recepción devolvía el comprobante.
  *
  * Se emite en una sola línea, sin indentación ni comentarios y con los
  * atributos en orden alfabético. No es por ahorrar bytes: así el texto que
@@ -263,7 +264,9 @@ export function generarXmlFactura(datos: DatosFactura): { xml: string; totales: 
     txt("totalSinImpuestos", n2(t.totalSinImpuestos)) +
     txt("totalDescuento", n2(t.totalDescuento)) +
     totalConImpuestos +
-    txt("propina", n2(t.propina)) +
+    // En el esquema 2.1.0 la propina es opcional. Se omite cuando es cero:
+    // así sale el mismo XML que el SRI viene autorizando para este emisor.
+    (t.propina > 0 ? txt("propina", n2(t.propina)) : "") +
     txt("importeTotal", n2(t.importeTotal)) +
     txt("moneda", datos.moneda ?? "DOLAR") +
     pagos +
@@ -308,7 +311,7 @@ export function generarXmlFactura(datos: DatosFactura): { xml: string; totales: 
         "</infoAdicional>";
 
   const xml =
-    '<factura id="comprobante" version="1.1.0">' +
+    '<factura id="comprobante" version="2.1.0">' +
     infoTributaria +
     infoFactura +
     detalles +
