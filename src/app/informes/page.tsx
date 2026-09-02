@@ -48,6 +48,40 @@ interface Balance {
   detalle: Detalle[];
 }
 
+interface Subarbol {
+  raices: Detalle[];
+  hijosDe: Map<string, Detalle[]>;
+}
+
+/**
+ * Las cuentas que sostienen un renglón del estado, colgadas de su rama. Las
+ * raíces son las que no cuelgan de otra cuenta del mismo renglón: en «Activo
+ * corriente» eso deja arriba «1.1», y dentro toda su descendencia.
+ */
+function subarbol(detalle: Detalle[] | undefined, cabe: (d: Detalle) => boolean): Subarbol {
+  const filas = (detalle ?? []).filter(cabe);
+  const codigos = new Set(filas.map((d) => d.codigo));
+  const hijosDe = new Map<string, Detalle[]>();
+  for (const d of filas) {
+    if (!d.padre || !codigos.has(d.padre)) continue;
+    hijosDe.set(d.padre, [...(hijosDe.get(d.padre) ?? []), d]);
+  }
+  return { raices: filas.filter((d) => !d.padre || !codigos.has(d.padre)), hijosDe };
+}
+
+/**
+ * Un renglón del estado se corresponde con un tipo y unos subtipos concretos,
+ * los mismos con los que las funciones de la base reparten los totales. Las
+ * cabeceras del plan —«1 ACTIVO», «6 GASTOS»— no llevan subtipo y quedan fuera:
+ * su saldo ya está repartido entre los renglones que cuelgan de ellas.
+ */
+const renglon =
+  (tipo: string, subtipos?: string[]) =>
+  (d: Detalle): boolean =>
+    d.tipo === tipo &&
+    d.subtipo !== null &&
+    (subtipos === undefined || subtipos.includes(d.subtipo));
+
 const HOY = new Date();
 
 export default function Informes() {
@@ -58,6 +92,7 @@ export default function Informes() {
   const [balance, setBalance] = useState<Balance | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [abiertos, setAbiertos] = useState<Record<string, boolean>>({});
 
   const pedir = useCallback(async () => {
     const [r1, r2] = await Promise.all([
@@ -81,6 +116,9 @@ export default function Informes() {
   }, []);
 
   useCarga(pedir, aplicar);
+
+  const alternar = (codigo: string, abierto: boolean) =>
+    setAbiertos((a) => ({ ...a, [codigo]: !abierto }));
 
   return (
     <div className="space-y-6">
@@ -122,23 +160,52 @@ export default function Informes() {
         <section id="resultados" className="scroll-mt-4 rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="mb-3 font-medium">Estado de resultados</h2>
           <dl className="divide-y divide-slate-100 text-sm">
-            <Fila k="Ingresos" v={pyg.ingresos} />
-            <Fila k="(−) Costo de ventas" v={-pyg.costo_ventas} />
+            <Fila
+              k="Ingresos"
+              v={pyg.ingresos}
+              cuentas={subarbol(pyg.detalle, renglon("INGRESO"))}
+              abiertos={abiertos}
+              alternar={alternar}
+            />
+            <Fila
+              k="(−) Costo de ventas"
+              v={-pyg.costo_ventas}
+              cuentas={subarbol(pyg.detalle, renglon("COSTO"))}
+              abiertos={abiertos}
+              alternar={alternar}
+            />
             <Fila k="Utilidad bruta" v={pyg.utilidad_bruta} destacado />
-            <Fila k="(−) Gastos operativos" v={-pyg.gastos_operativos} />
+            <Fila
+              k="(−) Gastos operativos"
+              v={-pyg.gastos_operativos}
+              cuentas={subarbol(pyg.detalle, renglon("GASTO", ["OPERATIVO"]))}
+              abiertos={abiertos}
+              alternar={alternar}
+            />
             <Fila k="Utilidad operativa" v={pyg.utilidad_operativa} destacado />
-            <Fila k="(−) Gastos financieros" v={-pyg.gastos_financieros} />
-            <Fila k="(−) Gastos personales" v={-pyg.gastos_personales} />
-            <Fila k="(−) Gastos no deducibles" v={-pyg.gastos_no_deducibles} />
+            <Fila
+              k="(−) Gastos financieros"
+              v={-pyg.gastos_financieros}
+              cuentas={subarbol(pyg.detalle, renglon("GASTO", ["FINANCIERO"]))}
+              abiertos={abiertos}
+              alternar={alternar}
+            />
+            <Fila
+              k="(−) Gastos personales"
+              v={-pyg.gastos_personales}
+              cuentas={subarbol(pyg.detalle, renglon("GASTO", ["PERSONAL"]))}
+              abiertos={abiertos}
+              alternar={alternar}
+            />
+            <Fila
+              k="(−) Gastos no deducibles"
+              v={-pyg.gastos_no_deducibles}
+              cuentas={subarbol(pyg.detalle, renglon("GASTO", ["NO_DEDUCIBLE"]))}
+              abiertos={abiertos}
+              alternar={alternar}
+            />
             <Fila k="Resultado del ejercicio" v={pyg.resultado_ejercicio} destacado />
           </dl>
-          <Desglose
-            detalle={pyg.detalle}
-            grupos={[
-              { titulo: "Ingresos", tipos: ["INGRESO"], signo: -1 },
-              { titulo: "Costos y gastos", tipos: ["COSTO", "GASTO"], signo: 1 },
-            ]}
-          />
         </section>
       )}
 
@@ -153,134 +220,109 @@ export default function Informes() {
           )}
           <div className="grid gap-6 sm:grid-cols-2">
             <dl className="divide-y divide-slate-100 text-sm">
-              <Fila k="Activo corriente" v={balance.activo_corriente} />
-              <Fila k="Activo no corriente" v={balance.activo_no_corriente} />
+              <Fila
+                k="Activo corriente"
+                v={balance.activo_corriente}
+                cuentas={subarbol(balance.detalle, renglon("ACTIVO", ["CORRIENTE"]))}
+                abiertos={abiertos}
+                alternar={alternar}
+              />
+              <Fila
+                k="Activo no corriente"
+                v={balance.activo_no_corriente}
+                cuentas={subarbol(balance.detalle, renglon("ACTIVO", ["NO_CORRIENTE"]))}
+                abiertos={abiertos}
+                alternar={alternar}
+              />
               <Fila k="Total activo" v={balance.total_activo} destacado />
             </dl>
             <dl className="divide-y divide-slate-100 text-sm">
-              <Fila k="Pasivo corriente" v={balance.pasivo_corriente} />
-              <Fila k="Pasivo no corriente" v={balance.pasivo_no_corriente} />
+              <Fila
+                k="Pasivo corriente"
+                v={balance.pasivo_corriente}
+                cuentas={subarbol(balance.detalle, renglon("PASIVO", ["CORRIENTE"]))}
+                abiertos={abiertos}
+                alternar={alternar}
+              />
+              <Fila
+                k="Pasivo no corriente"
+                v={balance.pasivo_no_corriente}
+                cuentas={subarbol(balance.detalle, renglon("PASIVO", ["NO_CORRIENTE"]))}
+                abiertos={abiertos}
+                alternar={alternar}
+              />
               <Fila k="Total pasivo" v={balance.total_pasivo} />
-              <Fila k="Patrimonio" v={balance.patrimonio_inicial} />
+              <Fila
+                k="Patrimonio"
+                v={balance.patrimonio_inicial}
+                cuentas={subarbol(balance.detalle, renglon("PATRIMONIO"))}
+                abiertos={abiertos}
+                alternar={alternar}
+              />
               <Fila k="Resultado del ejercicio" v={balance.resultado_ejercicio} />
               <Fila k="Pasivo + patrimonio" v={balance.pasivo_mas_patrimonio} destacado />
             </dl>
           </div>
-          <Desglose
-            detalle={balance.detalle}
-            grupos={[
-              { titulo: "Activos", tipos: ["ACTIVO"], signo: 1 },
-              { titulo: "Pasivos", tipos: ["PASIVO"], signo: -1 },
-              { titulo: "Patrimonio", tipos: ["PATRIMONIO"], signo: -1 },
-            ]}
-          />
         </section>
       )}
     </div>
   );
 }
 
-function Fila({ k, v, destacado }: { k: string; v: number; destacado?: boolean }) {
-  return (
-    <div className={`flex justify-between py-1.5 ${destacado ? "font-semibold" : ""}`}>
-      <dt>{k}</dt>
-      <dd className={`tabular-nums ${v < 0 ? "text-rose-700" : ""}`}>{usd(v)}</dd>
-    </div>
-  );
-}
-
-interface Grupo {
-  titulo: string;
-  tipos: string[];
-  /** Los saldos llegan en su naturaleza contable: −1 los que son de haber. */
-  signo: number;
-}
-
 /**
- * El desglose se lee por grupo —ingresos, gastos, activos, pasivos— y dentro de
- * cada uno por ramas: «Cooperativas» dice cuánto suman las once libretas y se
- * despliega para verlas una a una. Lo mismo con los bancos, las tarjetas o
- * cualquier familia de gastos.
- *
- * Las cuentas de los primeros niveles vienen abiertas; las que agrupan cuentas
- * concretas —una por banco, una por tarjeta— empiezan plegadas para que el
- * informe se lea de un vistazo y se abra solo lo que interesa.
+ * Un renglón del estado con su desglose justo debajo: las cuentas que lo
+ * componen, cada una en su rama. Las de los primeros niveles vienen abiertas;
+ * las que agrupan cuentas concretas —una por banco, una por libreta, una por
+ * tarjeta— empiezan plegadas y se abren al pulsarlas.
  */
-function Desglose({ detalle, grupos }: { detalle: Detalle[]; grupos: Grupo[] }) {
-  const [abiertos, setAbiertos] = useState<Record<string, boolean>>({});
-
-  if (!detalle?.length) return null;
-
-  const alternar = (codigo: string, abierto: boolean) =>
-    setAbiertos((a) => ({ ...a, [codigo]: !abierto }));
-
-  const bloques = grupos
-    .map((g) => {
-      const filas = detalle.filter((d) => g.tipos.includes(d.tipo));
-      const codigos = new Set(filas.map((d) => d.codigo));
-      const hijosDe = new Map<string, Detalle[]>();
-      for (const d of filas) {
-        if (!d.padre || !codigos.has(d.padre)) continue;
-        hijosDe.set(d.padre, [...(hijosDe.get(d.padre) ?? []), d]);
-      }
-      // Raíces del bloque: las que no cuelgan de otra cuenta del mismo grupo.
-      const raices = filas.filter((d) => !d.padre || !codigos.has(d.padre));
-      return { ...g, filas, hijosDe, raices };
-    })
-    .filter((g) => g.filas.length > 0);
-
+function Fila({
+  k,
+  v,
+  destacado,
+  cuentas,
+  abiertos,
+  alternar,
+}: {
+  k: string;
+  v: number;
+  destacado?: boolean;
+  cuentas?: Subarbol;
+  abiertos?: Record<string, boolean>;
+  alternar?: (codigo: string, abierto: boolean) => void;
+}) {
   return (
-    <details className="mt-4" open>
-      <summary className="cursor-pointer text-sm text-slate-500">
-        Desglose por cuenta ({detalle.length})
-      </summary>
-      <div className="mt-2 grid gap-4 sm:grid-cols-2">
-        {bloques.map((g) => {
-          const total = g.raices.reduce((s, d) => s + Number(d.saldo) * g.signo, 0);
-          return (
-            <div key={g.titulo}>
-              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                {g.titulo}
-              </h3>
-              <table className="w-full text-sm">
-                <tbody className="divide-y divide-slate-100">
-                  {g.raices.map((d) => (
-                    <Rama
-                      key={d.codigo}
-                      nodo={d}
-                      hijosDe={g.hijosDe}
-                      signo={g.signo}
-                      sangria={0}
-                      abiertos={abiertos}
-                      alternar={alternar}
-                    />
-                  ))}
-                  <tr className="border-t border-slate-300 font-semibold">
-                    <td className="py-1" />
-                    <td className="py-1">Total {g.titulo.toLowerCase()}</td>
-                    <td className="py-1 text-right tabular-nums">{usd(total)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          );
-        })}
+    <div className={destacado ? "font-semibold" : undefined}>
+      <div className="flex justify-between py-1.5">
+        <dt>{k}</dt>
+        <dd className={`tabular-nums ${v < 0 ? "text-rose-700" : ""}`}>{usd(v)}</dd>
       </div>
-    </details>
+      {cuentas && alternar && abiertos && cuentas.raices.length > 0 && (
+        <div className="mb-1.5 font-normal">
+          {cuentas.raices.map((d) => (
+            <Rama
+              key={d.codigo}
+              nodo={d}
+              hijosDe={cuentas.hijosDe}
+              sangria={0}
+              abiertos={abiertos}
+              alternar={alternar}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
 function Rama({
   nodo,
   hijosDe,
-  signo,
   sangria,
   abiertos,
   alternar,
 }: {
   nodo: Detalle;
   hijosDe: Map<string, Detalle[]>;
-  signo: number;
   sangria: number;
   abiertos: Record<string, boolean>;
   alternar: (codigo: string, abierto: boolean) => void;
@@ -290,35 +332,35 @@ function Rama({
 
   return (
     <>
-      <tr className={hijos.length > 0 ? "font-medium" : undefined}>
-        <td className="py-1 pr-3 font-mono text-xs text-slate-400">{nodo.codigo}</td>
-        <td className="py-1" style={{ paddingLeft: sangria * 14 }}>
+      <div
+        className="flex justify-between py-0.5 text-slate-600"
+        style={{ paddingLeft: 12 + sangria * 14 }}
+      >
+        <span className="flex min-w-0 items-baseline gap-1.5">
+          <span className="font-mono text-xs text-slate-400">{nodo.codigo}</span>
           {hijos.length > 0 ? (
             <button
               type="button"
               onClick={() => alternar(nodo.codigo, abierto)}
-              className="text-left hover:underline"
+              className="truncate text-left hover:underline"
               aria-expanded={abierto}
             >
-              <span className="mr-1 inline-block w-3 text-slate-400">
-                {abierto ? "▾" : "▸"}
-              </span>
+              <span className="mr-1 inline-block w-3 text-slate-400">{abierto ? "▾" : "▸"}</span>
               {nodo.cuenta}
               <span className="ml-1 text-xs text-slate-400">({hijos.length})</span>
             </button>
           ) : (
-            <span className="ml-4">{nodo.cuenta}</span>
+            <span className="ml-4 truncate">{nodo.cuenta}</span>
           )}
-        </td>
-        <td className="py-1 text-right tabular-nums">{usd(Number(nodo.saldo) * signo)}</td>
-      </tr>
+        </span>
+        <span className="tabular-nums">{usd(Number(nodo.saldo))}</span>
+      </div>
       {abierto &&
         hijos.map((h) => (
           <Rama
             key={h.codigo}
             nodo={h}
             hijosDe={hijosDe}
-            signo={signo}
             sangria={sangria + 1}
             abiertos={abiertos}
             alternar={alternar}
