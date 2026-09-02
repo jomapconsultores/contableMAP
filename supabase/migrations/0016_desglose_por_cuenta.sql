@@ -148,15 +148,21 @@ update public.asiento_lineas l
    and l.cuenta_id = origen.id;
 
 -- El movimiento de cada extracto, a la cuenta de la que salió o entró.
+-- La cuenta de partida se comprueba en el WHERE y no como join: en un
+-- UPDATE ... FROM, la tabla que se actualiza no puede referenciarse desde el
+-- FROM, y Postgres rechaza la sentencia entera.
 update public.asiento_lineas l
    set cuenta_id = cf.cuenta_id
   from public.asientos a
   join public.movimientos_extracto m on m.id = a.origen_id
   join public.cuentas_financieras cf on cf.id = m.cuenta_id
-  join public.plan_cuentas origen on origen.id = l.cuenta_id
  where a.id = l.asiento_id
    and a.origen = 'EXTRACTO'
-   and origen.codigo in ('1.1.01.02', '1.1.01.03')
+   and l.cuenta_id in (
+     select p.id
+       from public.plan_cuentas p
+      where p.entidad_id = a.entidad_id
+        and p.codigo in ('1.1.01.02', '1.1.01.03'))
    and cf.cuenta_id is not null
    and cf.cuenta_id <> l.cuenta_id;
 
