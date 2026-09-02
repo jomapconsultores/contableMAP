@@ -11,10 +11,10 @@ export const CUENTAS = {
   CAJA: "1.1.01.01",
   BANCOS: "1.1.01.02",
   COOPERATIVAS: "1.1.01.03",
-  // Bolsa del sueldo entre el rol y el extracto. Antes ese papel lo hacía
-  // «Bancos»; desde que cada cuenta financiera tiene la suya, «Bancos» es una
-  // cuenta de agrupación y no admite movimientos.
-  SUELDO_PENDIENTE: "1.1.01.98",
+  // Bolsa del sueldo entre el rol y el extracto. Va en el pasivo: el dinero ya
+  // entró y el ingreso todavía no se ha reconocido, así que es una obligación
+  // pendiente, no un activo con saldo negativo.
+  SUELDO_PENDIENTE: "2.1.07",
   CLIENTES: "1.1.02.01",
   DOC_COBRAR: "1.1.02.02",
   IVA_COMPRAS: "1.1.03.01",
