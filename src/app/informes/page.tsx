@@ -218,8 +218,14 @@ export default function Informes() {
               asientos incompletos o a saldos iniciales sin registrar.
             </p>
           )}
-          <div className="grid gap-6 sm:grid-cols-2">
-            <dl className="divide-y divide-slate-100 text-sm">
+          {/*
+            Las dos columnas cierran a la misma altura: el total de cada lado va
+            pegado al fondo con `mt-auto`, así que «Total activo» y «Pasivo +
+            patrimonio» quedan enfrentados por mucho que se desplieguen las
+            cuentas de un lado y no las del otro. Es como se lee un balance.
+          */}
+          <div className="grid items-stretch gap-6 sm:grid-cols-2">
+            <dl className="flex flex-col divide-y divide-slate-100 text-sm">
               <Fila
                 k="Activo corriente"
                 v={balance.activo_corriente}
@@ -234,9 +240,11 @@ export default function Informes() {
                 abiertos={abiertos}
                 alternar={alternar}
               />
-              <Fila k="Total activo" v={balance.total_activo} destacado />
+              <div className="mt-auto border-t border-slate-300 pt-1">
+                <Fila k="Total activo" v={balance.total_activo} destacado />
+              </div>
             </dl>
-            <dl className="divide-y divide-slate-100 text-sm">
+            <dl className="flex flex-col divide-y divide-slate-100 text-sm">
               <Fila
                 k="Pasivo corriente"
                 v={balance.pasivo_corriente}
@@ -260,7 +268,9 @@ export default function Informes() {
                 alternar={alternar}
               />
               <Fila k="Resultado del ejercicio" v={balance.resultado_ejercicio} />
-              <Fila k="Pasivo + patrimonio" v={balance.pasivo_mas_patrimonio} destacado />
+              <div className="mt-auto border-t border-slate-300 pt-1">
+                <Fila k="Pasivo + patrimonio" v={balance.pasivo_mas_patrimonio} destacado />
+              </div>
             </dl>
           </div>
         </section>
