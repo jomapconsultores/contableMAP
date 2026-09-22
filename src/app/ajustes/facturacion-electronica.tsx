@@ -57,7 +57,7 @@ interface Config {
 const AYUDA = "text-xs text-slate-500";
 
 /** El `<input type="file">` con el botón nativo a juego con el resto. */
-const CAMPO_ARCHIVO = `${campo} py-1.5 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-2.5 file:py-1 file:text-xs file:font-medium file:text-slate-700 hover:file:bg-slate-200`;
+const CAMPO_ARCHIVO = `${campo} py-1.5! file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-2.5 file:py-1 file:text-xs file:font-medium file:text-slate-700 hover:file:bg-slate-200`;
 
 function Cabecera() {
   return (

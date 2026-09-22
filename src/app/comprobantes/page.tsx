@@ -291,8 +291,8 @@ function Listado() {
                           value={f.categoria_id ?? ""}
                           disabled={bloqueado}
                           onChange={(e) => actualizar(f.id, { categoria_id: e.target.value })}
-                          className={`${campo} w-48 py-1.5 text-xs ${
-                            f.categoria_id || bloqueado ? "" : "border-amber-300 bg-amber-50"
+                          className={`${campo} w-48! py-1.5! text-xs! ${
+                            f.categoria_id || bloqueado ? "" : "border-amber-300! bg-amber-50!"
                           }`}
                         >
                           <option value="">— sin clasificar —</option>

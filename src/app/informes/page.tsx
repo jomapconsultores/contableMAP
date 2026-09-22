@@ -160,7 +160,7 @@ export default function Informes() {
                   setAnio(Number(e.target.value.slice(0, 4)));
                   setCargando(true);
                 }}
-                className={`${campo} w-auto`}
+                className={`${campo} w-auto!`}
               />
             </label>
             <label>
@@ -172,7 +172,7 @@ export default function Informes() {
                   setHasta(e.target.value);
                   setCargando(true);
                 }}
-                className={`${campo} w-auto`}
+                className={`${campo} w-auto!`}
               />
             </label>
           </div>

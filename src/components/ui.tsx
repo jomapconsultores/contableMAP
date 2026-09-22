@@ -37,7 +37,15 @@ export function boton(variante: Variante = "secundario", tamano: Tamano = "md") 
   return `inline-flex shrink-0 items-center justify-center rounded-lg font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 disabled:pointer-events-none disabled:opacity-50 ${VARIANTES[variante]} ${TAMANOS[tamano]}`;
 }
 
-/** Clases de `<input>`, `<select>` y `<textarea>`. */
+/**
+ * Clases de `<input>`, `<select>` y `<textarea>`.
+ *
+ * Trae ancho, relleno, tamaño de letra, borde y fondo. Para cambiar cualquiera
+ * de ellos en un campo concreto hay que marcar la clase con `!` (`w-48!`,
+ * `py-1.5!`, `bg-amber-50!`): dos clases de la misma propiedad en un elemento
+ * no se resuelven por el orden en que se escriben, y sin la marca puede ganar
+ * la de aquí.
+ */
 export const campo =
   "block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:bg-slate-50 disabled:text-slate-500";
 

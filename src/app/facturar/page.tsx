@@ -64,7 +64,7 @@ interface Linea extends ItemFactura {
 }
 
 /** Campo compacto para las celdas del detalle. */
-const CELDA = `${campo} py-1.5`;
+const CELDA = `${campo} py-1.5!`;
 
 const TARIFAS: { valor: string; texto: string }[] = [
   { valor: "15", texto: "IVA 15 %" },

@@ -356,7 +356,7 @@ function Movimientos() {
           <select
             value={cuenta}
             onChange={(e) => cambiar({ cuenta: e.target.value || null })}
-            className={`${campo} w-auto min-w-52`}
+            className={`${campo} w-auto! min-w-52!`}
           >
             <option value="">Todas las cuentas</option>
             {cuentasPorTipo.map(([tipo, lista]) => (
@@ -372,7 +372,7 @@ function Movimientos() {
           <select
             value={mes}
             onChange={(e) => cambiar({ mes: e.target.value || null })}
-            className={`${campo} w-auto`}
+            className={`${campo} w-auto!`}
           >
             <option value="">Cualquier fecha</option>
             {mesesRecientes().map((m) => (
@@ -403,7 +403,7 @@ function Movimientos() {
             <select
               value={categoriaLote}
               onChange={(e) => setCategoriaLote(e.target.value)}
-              className={`${campo} w-auto py-1.5`}
+              className={`${campo} w-auto! py-1.5!`}
             >
               <option value="">Asignar categoría…</option>
               {categorias.map((c) => (
@@ -520,7 +520,7 @@ function Movimientos() {
                       onChange={(e) => recategorizar([m.id], e.target.value)}
                       disabled={ocupado !== null}
                       title={m.asiento_id ? "Al cambiarla se corrige también su asiento" : undefined}
-                      className={`${campo} w-52 py-1.5 text-xs ${m.categoria_id ? "" : "border-amber-300 bg-amber-50"}`}
+                      className={`${campo} w-52! py-1.5! text-xs! ${m.categoria_id ? "" : "border-amber-300! bg-amber-50!"}`}
                     >
                       <option value="">— sin categoría —</option>
                       {categorias.map((c) => (

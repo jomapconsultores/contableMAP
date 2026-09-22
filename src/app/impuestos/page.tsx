@@ -127,7 +127,7 @@ export default function Impuestos() {
                   setMes(Number(e.target.value));
                   setCargando(true);
                 }}
-                className={`${campo} w-auto`}
+                className={`${campo} w-auto!`}
               >
                 {MESES.map((m, i) => (
                   <option key={m} value={i + 1}>
@@ -147,7 +147,7 @@ export default function Impuestos() {
                   setAnio(Number(e.target.value));
                   setCargando(true);
                 }}
-                className={`${campo} w-24 tabular-nums`}
+                className={`${campo} w-24! tabular-nums`}
               />
             </label>
           </div>
