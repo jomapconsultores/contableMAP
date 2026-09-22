@@ -33,7 +33,10 @@ export const LineaExtracto = z.object({
    * CREDITO: entra dinero o disminuye la deuda (pagos, notas de crédito).
    */
   naturaleza: z.enum(["DEBITO", "CREDITO"]),
-  monto: importe.positive(),
+  // Se admite el cero al leer: un fondo reporta «rendimiento 0,00» y una
+  // tarjeta, cargos anulados en cero. Esas líneas se descartan al guardar;
+  // rechazarlas aquí tumbaba el estado de cuenta entero por una línea vacía.
+  monto: importe.nonnegative(),
   moneda: z.string().nullable(),
 });
 

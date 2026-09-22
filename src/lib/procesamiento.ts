@@ -205,7 +205,10 @@ async function procesarExtracto(
   // La fecha se normaliza a ISO aquí; un movimiento sin fecha reconocible se
   // descarta en vez de romper toda la carga, y se avisa cuántos.
   let sinFecha = 0;
-  const filas = datos.movimientos
+  // Las líneas en cero no mueven dinero y la base exige montos positivos.
+  const conImporte = datos.movimientos.filter((m) => m.monto > 0);
+  const enCero = datos.movimientos.length - conImporte.length;
+  const filas = conImporte
     .map((m) => {
       const fecha = aISO(m.fecha);
       if (!fecha) {
@@ -286,7 +289,7 @@ async function procesarExtracto(
     })
     .eq("id", doc.id);
 
-  const omitidas = datos.movimientos.length - sinFecha - nuevas.length;
+  const omitidas = conImporte.length - sinFecha - nuevas.length;
 
   // Aunque el archivo no fuera idéntico byte a byte, si ninguno de sus
   // movimientos es nuevo, esta información ya estaba cargada.
@@ -297,6 +300,7 @@ async function procesarExtracto(
         `${clasificados} clasificados automáticamente` +
         (omitidas > 0 ? ` · ${omitidas} ya existían` : "") +
         (sinFecha > 0 ? ` · ${sinFecha} descartados sin fecha` : "") +
+        (enCero > 0 ? ` · ${enCero} en cero, sin registrar` : "") +
         cuentaResuelta +
         (datos.observaciones.length ? ` · ${datos.observaciones.length} observaciones` : "");
 
