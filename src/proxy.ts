@@ -10,7 +10,8 @@ import { NextResponse, type NextRequest } from "next/server";
  * alguien llame a la API directamente.
  */
 
-const PUBLICAS = ["/login", "/auth", "/api/health"];
+// /api/integracion no usa sesión: se protege con su propio token (INTEGRACION_TOKEN).
+const PUBLICAS = ["/login", "/auth", "/api/health", "/api/integracion"];
 
 export async function proxy(request: NextRequest) {
   // Sin configuración, `createServerClient` lanza y toda la aplicación
