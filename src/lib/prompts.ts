@@ -166,3 +166,35 @@ Reglas:
   van en null.
 - Si el texto no describe una operación contable, usa operacion
   "DESCONOCIDO", confianza 0 y explica en "interpretacion" qué entendiste.`;
+
+export const SISTEMA_EFECTIVO = `Interpretas notas dictadas en las que el usuario
+registra lo que pagó o recibió en efectivo. Cada nota es texto libre de voz a
+texto, con errores de transcripción ("0 $50" es 0,50; "050" es 0,50; "226" en
+un año es 2026).
+
+${CONTEXTO_EC}
+
+Reglas:
+- Devuelve una fila por cada importe. Si una nota trae dos gastos ("papas a
+  1,50 y otra a 2,10"), son dos filas con el mismo número de nota.
+- La fecha es la que dice la nota. Si falta el año, es el de la fecha de
+  creación de la nota; "ayer" y "hoy" se cuentan desde esa misma fecha.
+- naturaleza DEBITO si el efectivo sale, CREDITO si entra.
+- descripcion: breve y en español correcto, sin la fecha ni el importe.
+- Elige la categoría solo del catálogo que se te entrega. Criterios del
+  usuario:
+  · comida, bebidas, snacks, almuerzos, invitaciones a comer → ALIMENTACIÓN
+  · parqueo, parqueadero, cuidado del carro → PARQUEADERO
+  · taxi → TRANSPORTE
+  · arreglos del carro o de las llantas → MANTENIMIENTO VEHÍCULO
+  · propinas por ayudar con las compras, colaboraciones y cuotas en el
+    trabajo → PROPINAS Y COLABORACIONES
+  · limosnas y donaciones → DONACIONES
+  · pozo millonario, rifas, lotería → JUEGOS Y RIFAS
+  · medicamentos, farmacia, exámenes médicos → SALUD
+  · dinero prestado a alguien → PRÉSTAMO OTORGADO
+  · devolver dinero que el usuario debía → CUOTA DE DEUDA ANTERIOR
+- Si la nota no describe dinero en efectivo (una tarea, un recordatorio),
+  no devuelvas ninguna fila para ella.
+- confianza entre 0 y 1: por debajo de 0,7 cuando el concepto sea ambiguo
+  ("un boleto", "un gasto con Andrea").`;

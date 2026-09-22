@@ -1,7 +1,5 @@
-import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/server";
+import { entidadPorRuc, responder as responderIntegracion } from "@/lib/integracion";
 import { ErrorPeticion } from "@/lib/api";
 import { emitirFactura, FacturaAEmitir } from "@/lib/sri/emision";
 import { calcularTotales } from "@/lib/sri/xml";
@@ -44,57 +42,13 @@ const Emitir = z.object({
   simular: z.boolean().default(false),
 });
 
-/** null = pasa; si no, la respuesta con la que se corta. */
-function rechazo(request: Request) {
-  const esperado = process.env.INTEGRACION_TOKEN || "";
-  if (!esperado) {
-    return NextResponse.json(
-      { ok: false, error: "La integración no está habilitada: falta INTEGRACION_TOKEN." },
-      { status: 503 },
-    );
-  }
-  const recibido = Buffer.from((request.headers.get("authorization") || "").replace(/^Bearer\s+/i, ""));
-  const clave = Buffer.from(esperado);
-  if (recibido.length === clave.length && timingSafeEqual(recibido, clave)) return null;
-  return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
-}
-
-async function entidadPorRuc(ruc?: string | null) {
-  const sb = supabaseAdmin();
-  const elegido = ruc || process.env.INTEGRACION_ENTIDAD_RUC || "";
-  if (!elegido) {
-    throw new ErrorPeticion("Falta el RUC de la entidad emisora (entidad_ruc o INTEGRACION_ENTIDAD_RUC).", 400);
-  }
-  const { data } = await sb
-    .from("entidades")
-    .select("id, user_id, ruc")
-    .eq("ruc", elegido)
-    .eq("activo", true)
-    .limit(1)
-    .maybeSingle();
-  if (!data) throw new ErrorPeticion(`No hay una entidad activa con RUC ${elegido}.`, 404);
-  return { sb, entidad: data };
-}
-
 // Las que cuentan como emitidas: una NO_AUTORIZADA o anulada no bloquea volver
 // a facturar el mes.
 const VIGENTE = (v: { sri_estado: string; estado: string }) =>
   v.sri_estado !== "NO_AUTORIZADA" && v.estado !== "ANULADA";
 
 function responder<T>(fn: () => Promise<T>, request: Request) {
-  const corte = rechazo(request);
-  if (corte) return Promise.resolve(corte);
-  return fn().then(
-    (datos) => NextResponse.json({ ok: true, datos }),
-    (e: unknown) => {
-      if (e instanceof ErrorPeticion) {
-        return NextResponse.json({ ok: false, error: e.message }, { status: e.estado });
-      }
-      console.error("[integracion]", e);
-      const mensaje = e instanceof Error ? e.message : "Error inesperado";
-      return NextResponse.json({ ok: false, error: mensaje }, { status: 500 });
-    },
-  );
+  return responderIntegracion(request, "INTEGRACION_TOKEN", fn);
 }
 
 /** Facturas de una referencia (HON-AAAA-MM), para saber a quién ya se le facturó el mes. */

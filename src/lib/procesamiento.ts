@@ -70,7 +70,7 @@ export function encolar(id: string, userId: string, entidadId: string): void {
  * segundo desaparece en silencio al cargarse. Pasó: la cuenta cuadraba menos
  * 200,00 contra el saldo impreso del extracto.
  */
-function huella(
+export function huella(
   fecha: string,
   descripcion: string,
   monto: number,
