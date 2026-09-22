@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import http from "node:http";
+import https from "node:https";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -231,10 +233,37 @@ interface Fragmento {
 }
 
 /**
+ * POST que devuelve la respuesta sin límite de espera para las cabeceras.
+ *
+ * El fetch de Node corta a los cinco minutos si el servidor no ha empezado a
+ * responder. Ollama atiende una petición a la vez: si el ThinkPad está ocupado
+ * con otra —otro programa usando otro modelo— la nuestra espera en cola sin
+ * recibir nada, y el fetch la daba por perdida. node:http no tiene ese
+ * límite; el único tope es el AbortSignal de quien llama.
+ */
+function postear(url: string, cuerpo: string, signal: AbortSignal): Promise<http.IncomingMessage> {
+  return new Promise((resolver, rechazar) => {
+    const u = new URL(url);
+    const cliente = u.protocol === "https:" ? https : http;
+    const pet = cliente.request(
+      u,
+      {
+        method: "POST",
+        signal,
+        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(cuerpo) },
+      },
+      resolver,
+    );
+    pet.on("error", rechazar);
+    pet.end(cuerpo);
+  });
+}
+
+/**
  * Llamada a /api/chat en modo streaming. No es por mostrar el avance: sin
- * streaming Ollama no envía ni las cabeceras hasta terminar, y el cliente HTTP
- * de Node corta a los cinco minutos de silencio. Con streaming cada token
- * mantiene viva la conexión.
+ * streaming Ollama no envía nada hasta terminar, y una respuesta larga podía
+ * pasarse de cualquier tiempo de espera. Con streaming cada token mantiene
+ * viva la conexión.
  */
 async function chat({
   modelo,
@@ -252,13 +281,11 @@ async function chat({
   const temporizador = setTimeout(() => ac.abort(), TIEMPO_MAXIMO_MS);
 
   try {
-    let respuesta: Response;
+    let respuesta: http.IncomingMessage;
     try {
-      respuesta = await fetch(`${BASE}/api/chat`, {
-        method: "POST",
-        signal: ac.signal,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      respuesta = await postear(
+        `${BASE}/api/chat`,
+        JSON.stringify({
           model: modelo,
           messages: mensajes,
           stream: true,
@@ -271,8 +298,10 @@ async function chat({
             num_predict: Math.min(maxTokens, CONTEXTO),
           },
         }),
-      });
+        ac.signal,
+      );
     } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") throw e;
       throw new ErrorIA(
         `El servidor de IA (Ollama en ${new URL(BASE).host}) no responde. ` +
           `Revisa que el equipo esté encendido y conectado a Tailscale. ` +
@@ -280,26 +309,25 @@ async function chat({
       );
     }
 
-    if (!respuesta.ok || !respuesta.body) {
-      const detalle = await respuesta.text().catch(() => "");
-      if (respuesta.status === 404) {
+    const estado = respuesta.statusCode ?? 0;
+    if (estado < 200 || estado >= 300) {
+      let detalle = "";
+      for await (const trozo of respuesta) detalle += trozo;
+      if (estado === 404) {
         throw new ErrorIA(
           `El modelo ${modelo} no está instalado en Ollama. Descárgalo con «ollama pull ${modelo}».`,
         );
       }
-      throw new ErrorIA(`Ollama respondió con error ${respuesta.status}: ${detalle.slice(0, 300)}`);
+      throw new ErrorIA(`Ollama respondió con error ${estado}: ${detalle.slice(0, 300)}`);
     }
 
     let texto = "";
     let final: Fragmento | null = null;
     let resto = "";
     const decodificador = new TextDecoder();
-    const lector = respuesta.body.getReader();
 
-    for (;;) {
-      const { done, value } = await lector.read();
-      if (done) break;
-      resto += decodificador.decode(value, { stream: true });
+    for await (const trozo of respuesta) {
+      resto += decodificador.decode(trozo as Buffer, { stream: true });
       const lineas = resto.split("\n");
       resto = lineas.pop() ?? "";
       for (const linea of lineas) {
