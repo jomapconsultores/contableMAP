@@ -1,0 +1,494 @@
+import { createHash } from "node:crypto";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { aISO } from "@/lib/fechas";
+import { identificarCuenta } from "@/lib/cuentas";
+import { registrarIA, ErrorPeticion } from "@/lib/api";
+import { clasificarLote, normalizarComercio } from "@/lib/clasificacion";
+import {
+  extraerExtracto,
+  extraerFactura,
+  extraerRolPago,
+  type TipoDocumento,
+} from "@/lib/extraccion";
+import type { Uso } from "@/lib/ia";
+import { supabaseAdmin } from "@/lib/supabase/server";
+
+/**
+ * Procesamiento de documentos en segundo plano.
+ *
+ * Con el modelo en local, un estado de cuenta escaneado tarda varios minutos,
+ * y Cloudflare corta cualquier petición a los cien segundos. Así que la
+ * petición solo pone el documento en cola y responde; el trabajo sigue en el
+ * servidor y la pantalla consulta el estado hasta que termina.
+ *
+ * La cola procesa un documento a la vez: Ollama atiende una petición por vez en
+ * el ThinkPad, y en paralelo solo se estorbarían. Como el trabajo puede empezar
+ * mucho después de la petición —cuando la sesión del usuario ya caducó—, usa el
+ * cliente de servicio; cada consulta filtra por la entidad, que se verificó con
+ * la sesión al encolar.
+ */
+
+const ES_EXTRACTO = ["ESTADO_TARJETA", "ESTADO_BANCO", "ESTADO_COOPERATIVA"];
+
+/** Resumen de un extracto cuyos movimientos ya estaban todos cargados. */
+export const YA_CARGADO = "Este estado de cuenta ya estaba cargado";
+
+// La cola vive en globalThis y no en el módulo: Next puede cargar una copia
+// del módulo por cada ruta que lo importa, y la ruta que encola y la que
+// consulta el estado tienen que ver la misma.
+const g = globalThis as typeof globalThis & {
+  __colaIA?: { ids: Set<string>; cadena: Promise<void> };
+};
+const cola = (g.__colaIA ??= { ids: new Set(), cadena: Promise.resolve() });
+
+/** true si el documento está esperando o procesándose en este servidor. */
+export function estaEnCola(id: string): boolean {
+  return cola.ids.has(id);
+}
+
+/**
+ * Pone un documento en la cola. Un documento que figura PROCESANDO pero no
+ * está en la cola quedó huérfano de un reinicio: se vuelve a encolar.
+ */
+export function encolar(id: string, userId: string, entidadId: string): void {
+  if (cola.ids.has(id)) return;
+  cola.ids.add(id);
+  cola.cadena = cola.cadena
+    .then(() => procesarDocumento(id, userId, entidadId))
+    .catch((e) => console.error("[procesamiento]", id, e))
+    .finally(() => {
+      cola.ids.delete(id);
+    });
+}
+
+/**
+ * Huella estable de una línea de extracto, para no duplicar al recargar.
+ *
+ * La referencia forma parte de la huella y no es un adorno: sin ella, dos
+ * movimientos legítimos idénticos del mismo día —dos retiros de 200,00 en el
+ * mismo cajero, dos compras iguales en la misma tienda— comparten huella y el
+ * segundo desaparece en silencio al cargarse. Pasó: la cuenta cuadraba menos
+ * 200,00 contra el saldo impreso del extracto.
+ */
+function huella(
+  fecha: string,
+  descripcion: string,
+  monto: number,
+  naturaleza: string,
+  referencia: string | null,
+): string {
+  return createHash("sha256")
+    .update(
+      `${fecha}|${descripcion.trim().toUpperCase()}|${monto.toFixed(2)}|${naturaleza}|${referencia ?? ""}`,
+    )
+    .digest("hex")
+    .slice(0, 32);
+}
+
+async function procesarDocumento(id: string, userId: string, entidadId: string) {
+  const sb = supabaseAdmin();
+
+  const { data: doc, error } = await sb
+    .from("documentos")
+    .select("*")
+    .eq("id", id)
+    .eq("entidad_id", entidadId)
+    .single();
+  if (error || !doc) return;
+
+  await sb
+    .from("documentos")
+    .update({ resumen: "Leyendo el documento con la IA…", error_mensaje: null })
+    .eq("id", id);
+
+  try {
+    const { data: blob, error: errDesc } = await sb.storage
+      .from("documentos")
+      .download(doc.storage_path);
+    if (errDesc || !blob) {
+      throw new ErrorPeticion(`No se pudo leer el archivo: ${errDesc?.message}`, 500);
+    }
+
+    const base64 = Buffer.from(await blob.arrayBuffer()).toString("base64");
+    const mime = doc.mime_type ?? "application/pdf";
+
+    let resumen = "";
+    let uso: Uso;
+    let extraccion: unknown;
+
+    if (ES_EXTRACTO.includes(doc.tipo)) {
+      const r = await procesarExtracto(sb, entidadId, doc, base64, mime);
+      resumen = r.resumen;
+      uso = r.uso;
+      extraccion = r.extraccion;
+    } else if (doc.tipo === "FACTURA_COMPRA" || doc.tipo === "FACTURA_VENTA") {
+      const r = await procesarFactura(sb, entidadId, doc, base64, mime);
+      resumen = r.resumen;
+      uso = r.uso;
+      extraccion = r.extraccion;
+    } else if (doc.tipo === "ROL_PAGO") {
+      const r = await procesarRol(sb, entidadId, doc, base64, mime);
+      resumen = r.resumen;
+      uso = r.uso;
+      extraccion = r.extraccion;
+    } else {
+      throw new ErrorPeticion(
+        `El tipo ${doc.tipo} todavía no tiene extracción automática. Regístralo a mano.`,
+      );
+    }
+
+    // La extracción guarda las observaciones del modelo —totales que no
+    // cuadran, cifras dudosas— y la pantalla las muestra: un aviso que solo
+    // queda en la base de datos no lo lee nadie.
+    await sb
+      .from("documentos")
+      .update({
+        estado: "EXTRAIDO",
+        extraccion: extraccion as never,
+        resumen,
+        modelo_ia: uso.modelo,
+        tokens_entrada: uso.tokensEntrada,
+        tokens_salida: uso.tokensSalida,
+        procesado_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+
+    await registrarIA(sb, entidadId, userId, "EXTRACCION_DOC", uso, id);
+  } catch (e) {
+    const mensaje = e instanceof Error ? e.message : "Error desconocido";
+    await sb
+      .from("documentos")
+      .update({ estado: "ERROR", error_mensaje: mensaje, resumen: null })
+      .eq("id", id);
+  }
+}
+
+// ---------------------------------------------------------------------------
+
+type Doc = Record<string, unknown> & { id: string; tipo: string; cuenta_id: string | null };
+
+async function procesarExtracto(
+  sb: SupabaseClient,
+  entidadId: string,
+  doc: Doc,
+  base64: string,
+  mime: string,
+) {
+  const { datos, uso } = await extraerExtracto(base64, mime, doc.tipo as TipoDocumento);
+
+  if (datos.movimientos.length === 0) {
+    throw new ErrorPeticion(
+      "No se reconoció ningún movimiento en el documento. Revisa que el archivo sea legible.",
+    );
+  }
+
+  // La cuenta puede venir elegida a mano o, si no, la identifica la IA a partir
+  // de la institución y el número que leyó en la cabecera del extracto.
+  let cuentaId = doc.cuenta_id;
+  let cuentaResuelta = "";
+  if (!cuentaId) {
+    const emp = await identificarCuenta(sb, entidadId, {
+      institucion: datos.institucion,
+      numero_cuenta: datos.numero_cuenta,
+      tipo_cuenta: datos.tipo_cuenta,
+      titular: datos.titular,
+    });
+    cuentaId = emp.cuentaId;
+    cuentaResuelta =
+      emp.origen === "CREADA"
+        ? ` · cuenta creada: ${emp.nombre}`
+        : ` · cuenta detectada: ${emp.nombre}`;
+    // Se deja registrada en el documento para trazabilidad.
+    await sb.from("documentos").update({ cuenta_id: cuentaId }).eq("id", doc.id);
+  }
+
+  // La fecha se normaliza a ISO aquí; un movimiento sin fecha reconocible se
+  // descarta en vez de romper toda la carga, y se avisa cuántos.
+  let sinFecha = 0;
+  const filas = datos.movimientos
+    .map((m) => {
+      const fecha = aISO(m.fecha);
+      if (!fecha) {
+        sinFecha += 1;
+        return null;
+      }
+      return {
+        entidad_id: entidadId,
+        documento_id: doc.id,
+        cuenta_id: cuentaId as string,
+        fecha,
+        descripcion: m.descripcion,
+        comercio: m.comercio ? normalizarComercio(m.comercio) : null,
+        referencia: m.referencia,
+        naturaleza: m.naturaleza,
+        monto: m.monto,
+        moneda: m.moneda ?? "USD",
+        hash_linea: huella(fecha, m.descripcion, m.monto, m.naturaleza, m.referencia ?? null),
+      };
+    })
+    .filter((f): f is NonNullable<typeof f> => f !== null);
+
+  if (filas.length === 0) {
+    throw new ErrorPeticion(
+      "No se pudo interpretar la fecha de ningún movimiento. Revisa que el documento sea legible.",
+    );
+  }
+
+  // ignoreDuplicates deja pasar sin error las líneas ya cargadas en otra
+  // corrida del mismo extracto.
+  const { data: insertadas, error } = await sb
+    .from("movimientos_extracto")
+    .upsert(filas, {
+      onConflict: "entidad_id,cuenta_id,hash_linea",
+      ignoreDuplicates: true,
+    })
+    .select("id, fecha, descripcion, comercio, monto");
+
+  if (error) throw new ErrorPeticion(`No se pudieron guardar los movimientos: ${error.message}`, 500);
+
+  const nuevas = insertadas ?? [];
+
+  // Clasificación inmediata de lo recién cargado.
+  let clasificados = 0;
+  if (nuevas.length > 0) {
+    const { asignaciones } = await clasificarLote(
+      sb,
+      entidadId,
+      nuevas.map((m, i) => ({
+        indice: i,
+        descripcion: m.descripcion as string,
+        comercio: m.comercio as string | null,
+        monto: Number(m.monto),
+        fecha: m.fecha as string,
+      })),
+    );
+
+    for (const a of asignaciones) {
+      if (!a.categoriaId) continue;
+      clasificados += 1;
+      await sb
+        .from("movimientos_extracto")
+        .update({
+          categoria_id: a.categoriaId,
+          comercio: a.comercio,
+          clasificado_por: a.origen,
+          confianza_ia: a.origen === "IA" ? a.confianza : null,
+        })
+        .eq("id", nuevas[a.indice].id as string);
+    }
+  }
+
+  await sb
+    .from("documentos")
+    .update({
+      periodo_desde: aISO(datos.periodo_desde),
+      periodo_hasta: aISO(datos.periodo_hasta),
+    })
+    .eq("id", doc.id);
+
+  const omitidas = datos.movimientos.length - sinFecha - nuevas.length;
+
+  // Aunque el archivo no fuera idéntico byte a byte, si ninguno de sus
+  // movimientos es nuevo, esta información ya estaba cargada.
+  const resumen =
+    nuevas.length === 0 && omitidas > 0
+      ? `${YA_CARGADO}: sus ${omitidas} movimientos ya existían${cuentaResuelta}. No se agregó nada nuevo.`
+      : `${datos.movimientos.length} movimientos leídos · ${nuevas.length} nuevos · ` +
+        `${clasificados} clasificados automáticamente` +
+        (omitidas > 0 ? ` · ${omitidas} ya existían` : "") +
+        (sinFecha > 0 ? ` · ${sinFecha} descartados sin fecha` : "") +
+        cuentaResuelta +
+        (datos.observaciones.length ? ` · ${datos.observaciones.length} observaciones` : "");
+
+  return {
+    resumen,
+    uso,
+    extraccion: datos,
+    duplicado: nuevas.length === 0 && omitidas > 0,
+    observaciones: datos.observaciones,
+  };
+}
+
+async function procesarFactura(
+  sb: SupabaseClient,
+  entidadId: string,
+  doc: Doc,
+  base64: string,
+  mime: string,
+) {
+  const esCompra = doc.tipo === "FACTURA_COMPRA";
+  const { datos, uso } = await extraerFactura(
+    base64,
+    mime,
+    esCompra ? "FACTURA_COMPRA" : "FACTURA_VENTA",
+  );
+
+  const fecha = aISO(datos.fecha);
+  if (!fecha) {
+    throw new ErrorPeticion(
+      "No se pudo interpretar la fecha del comprobante. Regístralo manualmente.",
+    );
+  }
+
+  const comun = {
+    entidad_id: entidadId,
+    documento_id: doc.id,
+    fecha,
+    tipo_comprobante: datos.tipo_comprobante,
+    establecimiento: datos.establecimiento,
+    punto_emision: datos.punto_emision,
+    secuencial: datos.secuencial,
+    autorizacion: datos.autorizacion,
+    clave_acceso: datos.clave_acceso,
+    base_0: datos.base_0,
+    base_5: datos.base_5,
+    base_8: datos.base_8,
+    base_15: datos.base_15,
+    no_objeto_iva: datos.no_objeto_iva,
+    exento_iva: datos.exento_iva,
+    iva_5: datos.iva_5,
+    iva_8: datos.iva_8,
+    iva_15: datos.iva_15,
+    ice: datos.ice,
+    descuento: datos.descuento,
+    total: datos.total,
+    concepto: datos.concepto,
+    forma_pago: datos.forma_pago,
+  };
+
+  if (esCompra) {
+    if (!datos.ruc_emisor || !datos.nombre_emisor) {
+      throw new ErrorPeticion(
+        "No se pudo leer el RUC o la razón social del proveedor. Complétalo manualmente.",
+      );
+    }
+
+    const { data, error } = await sb
+      .from("compras")
+      .insert({
+        ...comun,
+        propina: datos.propina,
+        ruc_proveedor: datos.ruc_emisor,
+        nombre_proveedor: datos.nombre_emisor,
+      })
+      .select("id")
+      .single();
+
+    if (error) {
+      throw new ErrorPeticion(
+        error.code === "23505"
+          ? "Esta factura ya estaba registrada."
+          : `No se pudo registrar la compra: ${error.message}`,
+      );
+    }
+
+    // Clasificación por RUC del proveedor.
+    const { asignaciones } = await clasificarLote(sb, entidadId, [
+      {
+        indice: 0,
+        descripcion: datos.concepto ?? datos.nombre_emisor,
+        comercio: datos.nombre_emisor,
+        ruc: datos.ruc_emisor,
+        monto: datos.total,
+        fecha,
+      },
+    ]);
+
+    const a = asignaciones[0];
+    if (a?.categoriaId) {
+      const { data: cat } = await sb
+        .from("categorias_gasto")
+        .select("rubro_personal, deducible_negocio, credito_iva")
+        .eq("id", a.categoriaId)
+        .single();
+
+      await sb
+        .from("compras")
+        .update({
+          categoria_id: a.categoriaId,
+          clasificado_por: a.origen,
+          confianza_ia: a.origen === "IA" ? a.confianza : null,
+          rubro_personal: cat?.rubro_personal ?? null,
+          deducible_ir: cat?.deducible_negocio ?? true,
+          da_credito_iva: cat?.credito_iva ?? true,
+        })
+        .eq("id", data.id);
+    }
+
+    return {
+      resumen: `Compra ${datos.secuencial ?? ""} de ${datos.nombre_emisor} por USD ${datos.total.toFixed(2)} · categoría ${a?.categoria ?? "sin asignar"}`,
+      uso,
+      extraccion: datos,
+    };
+  }
+
+  const { error } = await sb.from("ventas").insert({
+    ...comun,
+    tipo_id_cliente: datos.identificacion_receptor ? "RUC" : "CONSUMIDOR_FINAL",
+    id_cliente: datos.identificacion_receptor,
+    razon_social_cliente: datos.nombre_receptor ?? "CONSUMIDOR FINAL",
+  });
+
+  if (error) {
+    throw new ErrorPeticion(
+      error.code === "23505"
+        ? "Esta venta ya estaba registrada."
+        : `No se pudo registrar la venta: ${error.message}`,
+    );
+  }
+
+  return {
+    resumen: `Venta ${datos.secuencial ?? ""} a ${datos.nombre_receptor ?? "consumidor final"} por USD ${datos.total.toFixed(2)}`,
+    uso,
+    extraccion: datos,
+  };
+}
+
+async function procesarRol(
+  sb: SupabaseClient,
+  entidadId: string,
+  doc: Doc,
+  base64: string,
+  mime: string,
+) {
+  const { datos, uso } = await extraerRolPago(base64, mime);
+
+  const { error } = await sb.from("roles_pago").insert({
+    entidad_id: entidadId,
+    documento_id: doc.id,
+    anio: datos.anio,
+    mes: datos.mes,
+    ruc_empleador: datos.ruc_empleador,
+    nombre_empleador: datos.nombre_empleador,
+    sueldo: datos.sueldo,
+    horas_extra: datos.horas_extra,
+    comisiones: datos.comisiones,
+    bonos: datos.bonos,
+    fondos_reserva: datos.fondos_reserva,
+    decimo_tercero: datos.decimo_tercero,
+    decimo_cuarto: datos.decimo_cuarto,
+    otros_ingresos: datos.otros_ingresos,
+    total_ingresos: datos.total_ingresos,
+    aporte_iess: datos.aporte_iess,
+    impuesto_renta: datos.impuesto_renta,
+    prestamos_iess: datos.prestamos_iess,
+    anticipos: datos.anticipos,
+    otros_descuentos: datos.otros_descuentos,
+    total_descuentos: datos.total_descuentos,
+    liquido_recibir: datos.liquido_recibir,
+  });
+
+  if (error) {
+    throw new ErrorPeticion(
+      error.code === "23505"
+        ? "Ya existe un rol de este empleador para ese mes."
+        : `No se pudo registrar el rol: ${error.message}`,
+    );
+  }
+
+  return {
+    resumen: `Rol ${String(datos.mes).padStart(2, "0")}/${datos.anio} de ${datos.nombre_empleador} · líquido USD ${datos.liquido_recibir.toFixed(2)}`,
+    uso,
+    extraccion: datos,
+  };
+}

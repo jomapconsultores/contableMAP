@@ -175,7 +175,6 @@ export async function clasificarLote(
       sistema: SISTEMA_CLASIFICACION,
       esquema: LoteClasificado,
       maxTokens: 16000,
-      esfuerzo: "medium",
       contenido: [
         {
           type: "text",

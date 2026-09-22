@@ -56,15 +56,22 @@ numeración.
 pantalla de revisión, y todo movimiento guarda con qué confianza y por qué vía
 (`MAPA`, `IA` o `MANUAL`) se clasificó. Por debajo de 0,7 se marca para revisar.
 
-**Primero se transcribe, después se estructura.** Los estados de cuenta llegan
-escaneados, sin capa de texto, y pedirle a un modelo de chat que los lea con
-visión sale caro y se equivoca en lo único que no puede fallar: las cifras. En
-las pruebas leyó `46,50` donde decía `46,80`. Ahora cada PDF o imagen pasa
-primero por el OCR de Mistral, que devuelve el extracto como tablas de markdown,
-y el modelo solo tiene que estructurar texto ya leído. Es más exacto, más
-barato, y deja de exigir un modelo con visión.
+**Primero se transcribe, después se estructura.** Si el PDF trae capa de
+texto se usa tal cual: son las cifras que escribió el banco, sin lectura de por
+medio. Las páginas escaneadas se convierten en imagen y las transcribe a
+markdown la visión del modelo, una por una; después el mismo modelo estructura
+ese texto. Así la extracción trabaja sobre cifras leídas una sola vez.
 
-El OCR tampoco es infalible —confunde algún dígito suelto—, así que el prompt
+**La IA corre en casa.** El modelo es `gemma4:26b` sobre Ollama, en el ThinkPad
+de la malla Tailscale (96 GB de RAM). Se eligió frente a Mistral por las cifras:
+en un PacifiCard escaneado leyó todos los importes exactos —los consumos suman
+los 251,92 que imprime el extracto— donde el OCR de Mistral había cambiado ochos
+por cincos. El precio es el tiempo: tres o cuatro minutos por página escaneada.
+Por eso los documentos se procesan en segundo plano, de uno en uno, y la
+pantalla consulta el estado hasta que terminan. El ThinkPad tiene que estar
+encendido para procesar documentos o interpretar la voz.
+
+La lectura tampoco es infalible —confunde algún dígito suelto—, así que el prompt
 de extracción le pide al modelo dos comprobaciones aritméticas sobre el propio
 documento: que la suma de los movimientos concuerde con los subtotales impresos
 y que `saldo_anterior` más los movimientos dé `saldo_actual`. Lo que no cuadra
@@ -122,9 +129,9 @@ Copia `.env.example` a `.env.local` y complétalo:
 | `NEXT_PUBLIC_SUPABASE_URL` | URL del proyecto |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Clave pública |
 | `SUPABASE_SERVICE_ROLE_KEY` | Solo servidor: tareas que deben saltar RLS |
-| `MISTRAL_API_KEY` | Extracción, clasificación e interpretación de voz |
-| `MISTRAL_MODEL` | Opcional; fija un solo modelo para todo. Sin él, el sistema usa `mistral-medium-latest`, y `mistral-small-latest` en las tareas de bajo esfuerzo |
-| `MISTRAL_OCR_MODEL` | Opcional; modelo que transcribe PDF e imágenes antes de estructurarlos. Por defecto `mistral-ocr-latest` |
+| `OLLAMA_URL` | Opcional; servidor Ollama. Por defecto el ThinkPad por Tailscale, `http://100.78.16.15:11434` |
+| `OLLAMA_MODEL` | Opcional; modelo para extraer, clasificar e interpretar la voz. Por defecto `gemma4:26b` |
+| `OLLAMA_VISION_MODEL` | Opcional; modelo que transcribe las páginas escaneadas. Por defecto el mismo |
 | `SRI_CERT_SECRET` | Cifra la contraseña del certificado de firma. Mínimo 16 caracteres y distinta por entorno; si cambia hay que volver a subir el `.p12` |
 
 ### 3. Desarrollo

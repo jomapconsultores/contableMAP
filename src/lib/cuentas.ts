@@ -141,7 +141,6 @@ export async function identificarCuenta(
       sistema: SISTEMA_IDENTIFICAR_CUENTA,
       esquema: CuentaIdentificada,
       maxTokens: 2000,
-      esfuerzo: "medium",
       contenido: [
         {
           type: "text",

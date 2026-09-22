@@ -47,7 +47,6 @@ export async function POST(request: Request) {
       sistema: SISTEMA_VOZ,
       esquema: MovimientoDictado,
       maxTokens: 8000,
-      esfuerzo: "medium",
       contenido: [{ type: "text", text: contextoTexto }],
     });
 

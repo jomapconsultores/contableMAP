@@ -36,7 +36,9 @@ ENV HOSTNAME=0.0.0.0
 # curl lo usa el healthcheck que inyecta Coolify, que ignora la instrucción
 # HEALTHCHECK de más abajo. Sin él cae a busybox wget, que resuelve `localhost`
 # como ::1 y no conecta, porque el servidor solo escucha en IPv4.
-RUN apk add --no-cache curl \
+# poppler-utils trae pdftotext y pdftoppm: la capa de texto de los PDF y la
+# conversión de las páginas escaneadas en imágenes para la IA.
+RUN apk add --no-cache curl poppler-utils \
  && addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 
 COPY --from=builder /app/public ./public

@@ -321,7 +321,7 @@ interface ItemCarga {
 const ETIQUETA_ESTADO: Record<EstadoItem, string> = {
   pendiente: "en cola",
   subiendo: "subiendo…",
-  procesando: "procesando…",
+  procesando: "procesando (puede tardar minutos)…",
   listo: "listo",
   duplicado: "ya subido",
   error: "error",
@@ -414,17 +414,21 @@ function PorDocumento() {
 
         actualizar(item.id, { estado: "procesando" });
 
-        const proceso = await fetch(`/api/documentos/${jsonSubida.datos.id}/procesar`, {
-          method: "POST",
-        });
+        const docId = jsonSubida.datos.id as string;
+        const proceso = await fetch(`/api/documentos/${docId}/procesar`, { method: "POST" });
         const jsonProceso = await proceso.json();
         if (!jsonProceso.ok) throw new Error(jsonProceso.error);
 
+        const fin = await esperarProceso(docId, (resumen) =>
+          actualizar(item.id, { mensaje: resumen }),
+        );
+        if (fin.estado === "ERROR") throw new Error(fin.error ?? "Error al procesar");
+
         // Archivo distinto pero con movimientos ya cargados.
         actualizar(item.id, {
-          estado: jsonProceso.datos.duplicado ? "duplicado" : "listo",
-          mensaje: jsonProceso.datos.resumen,
-          observaciones: jsonProceso.datos.observaciones ?? [],
+          estado: fin.duplicado ? "duplicado" : "listo",
+          mensaje: fin.resumen ?? "",
+          observaciones: fin.observaciones ?? [],
         });
       } catch (e) {
         actualizar(item.id, {
@@ -614,6 +618,37 @@ function PorDocumento() {
       )}
     </section>
   );
+}
+
+interface EstadoDocumento {
+  estado: string;
+  resumen: string | null;
+  error: string | null;
+  observaciones?: string[];
+  duplicado: boolean;
+  huerfano: boolean;
+}
+
+/**
+ * La IA corre en local y un documento escaneado tarda minutos, así que el
+ * servidor lo procesa en segundo plano y aquí se consulta su estado hasta que
+ * termina. Si el servidor se reinició a mitad, se vuelve a encolar.
+ */
+async function esperarProceso(
+  id: string,
+  avance: (resumen: string) => void,
+): Promise<EstadoDocumento> {
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 5000));
+    const r = await fetch(`/api/documentos/${id}`).then((x) => x.json());
+    if (!r.ok) throw new Error(r.error);
+    const doc = r.datos as EstadoDocumento;
+    if (doc.estado !== "PROCESANDO") return doc;
+    if (doc.huerfano) {
+      await fetch(`/api/documentos/${id}/procesar`, { method: "POST" });
+    }
+    if (doc.resumen) avance(doc.resumen);
+  }
 }
 
 function EstadoBadge({ estado }: { estado: EstadoItem }) {

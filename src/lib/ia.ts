@@ -1,3 +1,8 @@
+import { execFile } from "node:child_process";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
 import { z } from "zod";
 
 /**
@@ -5,51 +10,49 @@ import { z } from "zod";
  * sistema (esquemas, prompts, extracción, clasificación, rutas) solo conoce
  * `consultar`, `bloqueArchivo` y los tipos de resultado.
  *
- * Proveedor: Mistral (chat completions con salidas estructuradas por esquema
- * JSON). Los modelos con visión leen imágenes y PDF directamente.
+ * Proveedor: Ollama, en el ThinkPad de la malla Tailscale (96 GB de RAM y una
+ * RTX 500). Un solo modelo con visión hace las dos cosas —transcribir las
+ * páginas escaneadas y estructurar el texto—, así que no hay que cargar y
+ * descargar modelos entre un paso y otro.
+ *
+ * Se eligió gemma4:26b porque, sobre un PacifiCard escaneado, leyó todas las
+ * cifras exactas —sus consumos suman los 251,92 que imprime el extracto— donde
+ * el OCR de Mistral había confundido ochos con cincos. El precio es la
+ * velocidad: unos 11 tokens por segundo y tres o cuatro minutos por página
+ * escaneada. Por eso los documentos se procesan en segundo plano.
  */
 
-const BASE = "https://api.mistral.ai/v1/chat/completions";
-const BASE_OCR = "https://api.mistral.ai/v1/ocr";
+const BASE = (process.env.OLLAMA_URL ?? "http://100.78.16.15:11434").replace(/\/$/, "");
+
+/** Modelo para estructurar, clasificar e interpretar la voz. */
+export const MODELO = process.env.OLLAMA_MODEL ?? "gemma4:26b";
+
+/** Modelo que transcribe las páginas escaneadas. Debe admitir imágenes. */
+const MODELO_VISION = process.env.OLLAMA_VISION_MODEL ?? MODELO;
 
 /**
- * Modelo de transcripción. Los estados de cuenta llegan escaneados, sin capa
- * de texto, y un modelo de chat con visión se equivoca leyendo cifras —en las
- * pruebas confundió 46,80 con 46,50—. El OCR dedicado las lee exactas, así que
- * transcribe primero y el modelo de chat solo estructura texto.
+ * Ventana de contexto. El texto de un estado de cuenta de varias páginas más
+ * su JSON de salida caben de sobra; el ThinkPad tiene memoria para ello.
  */
-const MODELO_OCR = process.env.MISTRAL_OCR_MODEL ?? "mistral-ocr-latest";
-
-/** Modelo por defecto para extracción de documentos, donde importa la exactitud. */
-export const MODELO = process.env.MISTRAL_MODEL ?? "mistral-medium-latest";
-
-function apiKey(): string {
-  const k = process.env.MISTRAL_API_KEY;
-  if (!k) throw new Error("Falta MISTRAL_API_KEY");
-  return k;
-}
+const CONTEXTO = Number(process.env.OLLAMA_NUM_CTX ?? 32768);
 
 /**
- * El esfuerzo se traduce a modelo. Desde que el OCR transcribe los documentos,
- * ningún trabajo necesita visión ni el nivel de `large`: al modelo de chat le
- * llega texto ya leído y solo tiene que estructurarlo. Si la suscripción
- * vuelve a admitir un modelo mayor, basta con fijar `MISTRAL_MODEL`.
+ * Tiempo máximo de una llamada. En CPU un documento largo puede tardar
+ * minutos; esto solo corta lo que se ha quedado colgado.
  */
-function modeloPara(esfuerzo: Esfuerzo): string {
-  if (process.env.MISTRAL_MODEL) return process.env.MISTRAL_MODEL;
-  return esfuerzo === "low" ? "mistral-small-latest" : "mistral-medium-latest";
-}
+const TIEMPO_MAXIMO_MS = 30 * 60_000;
 
-type Esfuerzo = "low" | "medium" | "high" | "xhigh" | "max";
+/** El modelo sigue cargado entre documentos de una misma tanda. */
+const MANTENER_CARGADO = "30m";
 
 // ---------------------------------------------------------------------------
 // JSON Schema para salidas estructuradas
 // ---------------------------------------------------------------------------
 
 /**
- * Palabras clave de JSON Schema que el modo estricto no admite. Se eliminan
- * del esquema enviado al modelo; la validación real la hace zod sobre la
- * respuesta, así que no se pierde ninguna garantía.
+ * Palabras clave que la gramática de Ollama no aplica. Se eliminan del esquema
+ * enviado al modelo; la validación real la hace zod sobre la respuesta, así
+ * que no se pierde ninguna garantía.
  */
 const NO_SOPORTADAS = new Set([
   "minimum",
@@ -79,8 +82,8 @@ function sanear(nodo: unknown): unknown {
     salida[clave] = sanear(valor);
   }
 
-  // El modo estricto exige objetos cerrados con todas las propiedades
-  // declaradas como obligatorias.
+  // Objetos cerrados y con todas sus propiedades obligatorias: así la
+  // gramática obliga al modelo a devolver cada campo, aunque sea null.
   if (salida.type === "object" && salida.properties) {
     salida.additionalProperties = false;
     salida.required = Object.keys(salida.properties as Json);
@@ -94,103 +97,101 @@ export function esquemaJson(schema: z.ZodType): Json {
 }
 
 // ---------------------------------------------------------------------------
-// Contenido: texto, imagen o documento
+// Contenido: texto o imagen
 // ---------------------------------------------------------------------------
 
 export type ParteContenido =
   | { type: "text"; text: string }
-  | { type: "image_url"; image_url: { url: string } }
-  | { type: "document_url"; document_url: string };
+  | { type: "image"; base64: string };
 
 const IMAGENES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
-/** Documento nativo del OCR: el PDF completo o una sola imagen. */
-function documentoOcr(base64: string, mimeType: string) {
-  return mimeType === "application/pdf"
-    ? { type: "document_url", document_url: `data:application/pdf;base64,${base64}` }
-    : { type: "image_url", image_url: `data:${mimeType};base64,${base64}` };
-}
-
-interface RespuestaOcr {
-  pages?: { index?: number; markdown?: string }[];
-  message?: string;
-}
+const ejecutar = promisify(execFile);
 
 /**
- * Transcribe un PDF o una imagen a texto con el OCR de Mistral. Devuelve el
- * markdown de todas las páginas concatenado: las tablas del extracto se
- * conservan como tablas, que es lo que después permite al modelo asociar cada
- * importe con su fecha y su concepto.
+ * Por debajo de esto, el texto incrustado del PDF no es un extracto sino una
+ * cáscara —un pie de página, un número de hoja— sobre páginas escaneadas.
+ */
+const MIN_IMPORTES_TEXTO = 5;
+
+const PROMPT_TRANSCRIPCION =
+  "Transcribe esta página de un documento financiero a markdown. " +
+  "Reproduce cada tabla como tabla markdown, fila por fila, con todas sus columnas " +
+  "(fecha, referencia, concepto, valores, signos). Copia cada cifra exactamente como " +
+  "aparece, con sus separadores. Nunca omitas una fila ni un importe. Solo los " +
+  "párrafos de texto legal o publicitario puedes reducirlos a una línea.";
+
+/**
+ * Transcribe un PDF o una imagen a texto.
+ *
+ * Si el PDF trae capa de texto se usa tal cual: son las cifras que escribió el
+ * banco, sin lectura de por medio, y no cuesta nada. Solo las páginas
+ * escaneadas pasan por la visión del modelo, una a una, a 150 ppp.
  */
 export async function transcribir(base64: string, mimeType: string): Promise<string> {
-  const ac = new AbortController();
-  const temporizador = setTimeout(() => ac.abort(), 280_000);
+  if (IMAGENES.includes(mimeType)) return leerImagen(base64);
 
-  let respuesta: Response;
+  const dir = await mkdtemp(path.join(tmpdir(), "ia-"));
   try {
-    respuesta = await fetch(BASE_OCR, {
-      method: "POST",
-      signal: ac.signal,
-      headers: {
-        Authorization: `Bearer ${apiKey()}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        model: MODELO_OCR,
-        document: documentoOcr(base64, mimeType),
-      }),
-    });
-  } catch (e) {
-    clearTimeout(temporizador);
-    if (e instanceof Error && e.name === "AbortError") {
-      throw new ErrorIA("La transcripción del documento excedió el tiempo máximo.");
+    const pdf = path.join(dir, "doc.pdf");
+    await writeFile(pdf, Buffer.from(base64, "base64"));
+
+    const texto = await textoIncrustado(pdf);
+    if (texto) return texto;
+
+    await ejecutar("pdftoppm", ["-r", "150", "-png", pdf, path.join(dir, "p")]);
+    const paginas = (await readdir(dir)).filter((f) => f.endsWith(".png")).sort();
+    if (paginas.length === 0) throw new ErrorIA("No se pudo convertir el PDF en imágenes.");
+
+    const partes: string[] = [];
+    for (const [i, pagina] of paginas.entries()) {
+      const img = (await readFile(path.join(dir, pagina))).toString("base64");
+      partes.push(`<!-- Página ${i + 1} de ${paginas.length} -->\n${await leerImagen(img)}`);
     }
-    throw new ErrorIA(
-      `No se pudo contactar al servicio de OCR: ${e instanceof Error ? e.message : e}`,
-    );
+    return partes.join("\n\n");
+  } catch (e) {
+    if (e instanceof ErrorIA) throw e;
+    throw new ErrorIA(`No se pudo leer el PDF: ${e instanceof Error ? e.message : e}`);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
-  clearTimeout(temporizador);
+}
 
-  const cuerpo = (await respuesta.json().catch(() => null)) as RespuestaOcr | null;
-
-  if (!respuesta.ok) {
-    throw new ErrorIA(
-      `El OCR respondió con error: ${cuerpo?.message ?? `HTTP ${respuesta.status}`}`,
-    );
+async function textoIncrustado(pdf: string): Promise<string | null> {
+  try {
+    const { stdout } = await ejecutar("pdftotext", ["-layout", pdf, "-"], {
+      maxBuffer: 20 * 1024 * 1024,
+    });
+    const importes = stdout.match(/\d[\d.,]*[.,]\d{2}\b/g)?.length ?? 0;
+    return importes >= MIN_IMPORTES_TEXTO ? stdout.trim() : null;
+  } catch {
+    return null;
   }
+}
 
-  const texto = (cuerpo?.pages ?? [])
-    .map((p) => p.markdown ?? "")
-    .join("\n\n")
-    .trim();
-
-  if (!texto) throw new ErrorIA("El OCR no devolvió texto para este documento.");
-  return texto;
+async function leerImagen(base64: string): Promise<string> {
+  const { texto } = await chat({
+    modelo: MODELO_VISION,
+    mensajes: [{ role: "user", content: PROMPT_TRANSCRIPCION, images: [base64] }],
+    maxTokens: 8000,
+  });
+  if (!texto.trim()) throw new ErrorIA("El modelo no devolvió texto para una página.");
+  return texto.trim();
 }
 
 /**
  * Convierte un archivo cargado en la parte de contenido correspondiente.
  *
- * Los PDF e imágenes pasan primero por el OCR y llegan al modelo como texto:
- * es más exacto con las cifras que la visión del modelo de chat, y más barato.
- * Si el OCR falla se entrega el archivo tal cual, para que un modelo con visión
- * pueda intentarlo igualmente en vez de perder el documento.
+ * Los PDF e imágenes llegan al modelo como texto ya transcrito: la extracción
+ * trabaja sobre cifras leídas una sola vez, y el prompt puede pedirle que las
+ * cuadre contra los totales impresos.
  */
 export async function bloqueArchivo(
   base64: string,
   mimeType: string,
 ): Promise<ParteContenido> {
-  const esImagen = IMAGENES.includes(mimeType);
-
-  if (mimeType === "application/pdf" || esImagen) {
-    try {
-      return { type: "text", text: await transcribir(base64, mimeType) };
-    } catch {
-      return mimeType === "application/pdf"
-        ? { type: "document_url", document_url: `data:application/pdf;base64,${base64}` }
-        : { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } };
-    }
+  if (mimeType === "application/pdf" || IMAGENES.includes(mimeType)) {
+    return { type: "text", text: await transcribir(base64, mimeType) };
   }
 
   // XML de comprobantes electrónicos, CSV del banco, texto plano.
@@ -198,7 +199,7 @@ export async function bloqueArchivo(
 }
 
 // ---------------------------------------------------------------------------
-// Llamada tipada al modelo
+// Llamada al modelo
 // ---------------------------------------------------------------------------
 
 export interface Uso {
@@ -213,117 +214,172 @@ export interface Resultado<T> {
   uso: Uso;
 }
 
+interface Mensaje {
+  role: "system" | "user";
+  content: string;
+  images?: string[];
+}
+
+interface Fragmento {
+  model?: string;
+  message?: { content?: string };
+  done?: boolean;
+  done_reason?: string;
+  prompt_eval_count?: number;
+  eval_count?: number;
+  error?: string;
+}
+
+/**
+ * Llamada a /api/chat en modo streaming. No es por mostrar el avance: sin
+ * streaming Ollama no envía ni las cabeceras hasta terminar, y el cliente HTTP
+ * de Node corta a los cinco minutos de silencio. Con streaming cada token
+ * mantiene viva la conexión.
+ */
+async function chat({
+  modelo,
+  mensajes,
+  maxTokens,
+  formato,
+}: {
+  modelo: string;
+  mensajes: Mensaje[];
+  maxTokens: number;
+  formato?: Json;
+}): Promise<{ texto: string; uso: Uso }> {
+  const inicio = Date.now();
+  const ac = new AbortController();
+  const temporizador = setTimeout(() => ac.abort(), TIEMPO_MAXIMO_MS);
+
+  try {
+    let respuesta: Response;
+    try {
+      respuesta = await fetch(`${BASE}/api/chat`, {
+        method: "POST",
+        signal: ac.signal,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: modelo,
+          messages: mensajes,
+          stream: true,
+          think: false,
+          keep_alive: MANTENER_CARGADO,
+          ...(formato ? { format: formato } : {}),
+          options: {
+            temperature: 0,
+            num_ctx: CONTEXTO,
+            num_predict: Math.min(maxTokens, CONTEXTO),
+          },
+        }),
+      });
+    } catch (e) {
+      throw new ErrorIA(
+        `El servidor de IA (Ollama en ${new URL(BASE).host}) no responde. ` +
+          `Revisa que el equipo esté encendido y conectado a Tailscale. ` +
+          `(${e instanceof Error ? (e.cause as Error | undefined)?.message ?? e.message : e})`,
+      );
+    }
+
+    if (!respuesta.ok || !respuesta.body) {
+      const detalle = await respuesta.text().catch(() => "");
+      if (respuesta.status === 404) {
+        throw new ErrorIA(
+          `El modelo ${modelo} no está instalado en Ollama. Descárgalo con «ollama pull ${modelo}».`,
+        );
+      }
+      throw new ErrorIA(`Ollama respondió con error ${respuesta.status}: ${detalle.slice(0, 300)}`);
+    }
+
+    let texto = "";
+    let final: Fragmento | null = null;
+    let resto = "";
+    const decodificador = new TextDecoder();
+    const lector = respuesta.body.getReader();
+
+    for (;;) {
+      const { done, value } = await lector.read();
+      if (done) break;
+      resto += decodificador.decode(value, { stream: true });
+      const lineas = resto.split("\n");
+      resto = lineas.pop() ?? "";
+      for (const linea of lineas) {
+        if (!linea.trim()) continue;
+        const f = JSON.parse(linea) as Fragmento;
+        if (f.error) throw new ErrorIA(`Ollama: ${f.error}`);
+        texto += f.message?.content ?? "";
+        if (f.done) final = f;
+      }
+    }
+
+    if (final?.done_reason === "length") {
+      throw new ErrorIA(
+        "La respuesta se truncó por límite de tokens. Divide el documento en partes.",
+        "length",
+      );
+    }
+
+    return {
+      texto,
+      uso: {
+        tokensEntrada: final?.prompt_eval_count ?? 0,
+        tokensSalida: final?.eval_count ?? 0,
+        duracionMs: Date.now() - inicio,
+        modelo: final?.model ?? modelo,
+      },
+    };
+  } catch (e) {
+    if (e instanceof ErrorIA) throw e;
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new ErrorIA("La consulta al modelo excedió el tiempo máximo.");
+    }
+    throw new ErrorIA(`Fallo en la consulta al modelo: ${e instanceof Error ? e.message : e}`);
+  } finally {
+    clearTimeout(temporizador);
+  }
+}
+
 interface OpcionesLlamada<T extends z.ZodType> {
   sistema: string;
   contenido: ParteContenido[];
   esquema: T;
   maxTokens?: number;
-  esfuerzo?: Esfuerzo;
-}
-
-interface RespuestaMistral {
-  model?: string;
-  choices?: {
-    finish_reason?: string;
-    message?: { content?: string };
-  }[];
-  usage?: { prompt_tokens?: number; completion_tokens?: number };
-  message?: string;
 }
 
 /**
  * Ejecuta una consulta y devuelve la respuesta ya validada contra el esquema.
+ * La gramática de Ollama obliga a que la salida sea JSON con la forma del
+ * esquema; zod comprueba después lo que la gramática no puede (rangos, tipos
+ * finos).
  */
 export async function consultar<T extends z.ZodType>({
   sistema,
   contenido,
   esquema,
-  maxTokens = 32000,
-  esfuerzo = "high",
+  maxTokens = 16000,
 }: OpcionesLlamada<T>): Promise<Resultado<z.infer<T>>> {
-  const inicio = Date.now();
-  const modelo = modeloPara(esfuerzo);
+  const texto = contenido
+    .filter((p): p is { type: "text"; text: string } => p.type === "text")
+    .map((p) => p.text)
+    .join("\n\n");
+  const imagenes = contenido
+    .filter((p): p is { type: "image"; base64: string } => p.type === "image")
+    .map((p) => p.base64);
 
-  // Los documentos largos pueden tardar; el AbortController impide que una
-  // petición colgada agote el tiempo de la ruta sin un error claro.
-  const ac = new AbortController();
-  const temporizador = setTimeout(() => ac.abort(), 280_000);
+  const { texto: salida, uso } = await chat({
+    modelo: imagenes.length ? MODELO_VISION : MODELO,
+    mensajes: [
+      { role: "system", content: sistema },
+      { role: "user", content: texto, ...(imagenes.length ? { images: imagenes } : {}) },
+    ],
+    maxTokens,
+    formato: esquemaJson(esquema),
+  });
 
-  let respuesta: Response;
-  try {
-    respuesta = await fetch(BASE, {
-      method: "POST",
-      signal: ac.signal,
-      headers: {
-        Authorization: `Bearer ${apiKey()}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        model: modelo,
-        max_tokens: maxTokens,
-        messages: [
-          { role: "system", content: sistema },
-          { role: "user", content: contenido },
-        ],
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: "resultado",
-            strict: true,
-            schema: esquemaJson(esquema),
-          },
-        },
-      }),
-    });
-  } catch (e) {
-    clearTimeout(temporizador);
-    if (e instanceof Error && e.name === "AbortError") {
-      throw new ErrorIA("La consulta al modelo excedió el tiempo máximo.");
-    }
-    throw new ErrorIA(
-      `No se pudo contactar al servicio de IA: ${e instanceof Error ? e.message : e}`,
-    );
-  }
-  clearTimeout(temporizador);
-
-  const cuerpo = (await respuesta.json().catch(() => null)) as RespuestaMistral | null;
-
-  if (!respuesta.ok) {
-    const detalle = cuerpo?.message ?? `HTTP ${respuesta.status}`;
-    if (respuesta.status === 429) {
-      throw new ErrorIA("El servicio de IA está saturado. Reintenta en unos minutos.");
-    }
-    if (respuesta.status === 401) {
-      throw new ErrorIA("La clave de Mistral es inválida o expiró.");
-    }
-    // Mistral responde 402 sin cuerpo cuando la cuenta se queda sin saldo. El
-    // documento queda subido y en ERROR: basta recargar y reprocesarlo.
-    if (respuesta.status === 402) {
-      throw new ErrorIA(
-        "La cuenta de Mistral se quedó sin saldo. Recarga en console.mistral.ai " +
-          "y vuelve a procesar el documento; ya está subido, no hace falta cargarlo otra vez.",
-      );
-    }
-    throw new ErrorIA(`El servicio de IA respondió con error: ${detalle}`);
-  }
-
-  const eleccion = cuerpo?.choices?.[0];
-  if (eleccion?.finish_reason === "length") {
-    throw new ErrorIA(
-      "La respuesta se truncó por límite de tokens. Divide el documento en partes.",
-      "length",
-    );
-  }
-
-  const texto = eleccion?.message?.content;
-  if (!texto) {
-    throw new ErrorIA("El modelo no devolvió contenido.");
-  }
+  if (!salida.trim()) throw new ErrorIA("El modelo no devolvió contenido.");
 
   let crudo: unknown;
   try {
-    crudo = JSON.parse(texto);
+    crudo = JSON.parse(salida);
   } catch {
     throw new ErrorIA("El modelo devolvió un JSON inválido.");
   }
@@ -338,15 +394,7 @@ export async function consultar<T extends z.ZodType>({
     );
   }
 
-  return {
-    datos: validado.data,
-    uso: {
-      tokensEntrada: cuerpo?.usage?.prompt_tokens ?? 0,
-      tokensSalida: cuerpo?.usage?.completion_tokens ?? 0,
-      duracionMs: Date.now() - inicio,
-      modelo: cuerpo?.model ?? modelo,
-    },
-  };
+  return { datos: validado.data, uso };
 }
 
 export class ErrorIA extends Error {
