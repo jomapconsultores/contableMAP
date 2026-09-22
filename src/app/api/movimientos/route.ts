@@ -40,6 +40,10 @@ export async function GET(request: Request) {
  * Corrige la categoría de un movimiento. La corrección manual se guarda en el
  * mapa como confirmada, de modo que pisa cualquier sugerencia posterior de la
  * IA para ese mismo comercio.
+ *
+ * Si el movimiento ya estaba contabilizado, la línea de su asiento pasa a la
+ * cuenta de la nueva categoría. Cambiar solo la categoría dejaría los estados
+ * financieros con la cuenta vieja.
  */
 export async function PATCH(request: Request) {
   return manejar(async () => {
@@ -51,6 +55,39 @@ export async function PATCH(request: Request) {
 
     if (!id || !categoria_id) throw new ErrorPeticion("Faltan id y categoria_id.");
     const { sb, entidadId } = await contexto();
+
+    const { data: previo, error: errPrevio } = await sb
+      .from("movimientos_extracto")
+      .select("asiento_id, categorias_gasto(cuenta_id)")
+      .eq("id", id)
+      .single();
+    if (errPrevio || !previo) throw new ErrorPeticion("Movimiento no encontrado.", 404);
+
+    if (previo.asiento_id) {
+      // El embebido llega como objeto o como arreglo según cómo se infiera la
+      // relación; se acepta cualquiera de las dos formas.
+      const cat = [previo.categorias_gasto].flat()[0] as { cuenta_id: string | null } | undefined;
+      const cuentaVieja = cat?.cuenta_id;
+      const { data: nueva } = await sb
+        .from("categorias_gasto")
+        .select("cuenta_id")
+        .eq("id", categoria_id)
+        .single();
+
+      if (!cuentaVieja || !nueva?.cuenta_id) {
+        throw new ErrorPeticion(
+          "El movimiento ya está contabilizado y una de las dos categorías no tiene cuenta contable.",
+        );
+      }
+      if (cuentaVieja !== nueva.cuenta_id) {
+        const { error: errLinea } = await sb
+          .from("asiento_lineas")
+          .update({ cuenta_id: nueva.cuenta_id })
+          .eq("asiento_id", previo.asiento_id)
+          .eq("cuenta_id", cuentaVieja);
+        if (errLinea) throw new ErrorPeticion(errLinea.message, 500);
+      }
+    }
 
     const { data: mov, error } = await sb
       .from("movimientos_extracto")
