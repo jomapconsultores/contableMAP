@@ -1,8 +1,22 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { Plus, Receipt, X } from "lucide-react";
 import { usd, fecha } from "@/lib/formato";
 import { useCarga } from "@/lib/carga";
+import {
+  Aviso,
+  Encabezado,
+  Esqueleto,
+  Indicador,
+  Insignia,
+  Tarjeta,
+  Vacio,
+  boton,
+  campo,
+  etiqueta as claseEtiqueta,
+  tabla,
+} from "@/components/ui";
 
 interface Retencion {
   id: string;
@@ -56,46 +70,38 @@ export default function Retenciones() {
   const totalRenta = recibidas.reduce((s, f) => s + Number(f.ret_renta), 0);
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Retenciones</h1>
-          <p className="text-sm text-slate-600">
-            Las que nos efectúan alimentan el crédito tributario de IVA y de
-            renta; las que efectuamos como agente crean la obligación con el SRI.
-          </p>
-        </div>
-        <button
-          onClick={() => setAbierto(!abierto)}
-          className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-        >
-          {abierto ? "Cancelar" : "Registrar comprobante"}
-        </button>
+    <div className="space-y-6">
+      <Encabezado
+        titulo="Retenciones"
+        descripcion="Las que nos efectúan alimentan el crédito tributario de IVA y de renta; las que efectuamos como agente crean la obligación con el SRI."
+        acciones={
+          <button
+            onClick={() => setAbierto(!abierto)}
+            className={boton(abierto ? "secundario" : "primario")}
+          >
+            {abierto ? <X size={16} /> : <Plus size={16} />}
+            {abierto ? "Cancelar" : "Registrar comprobante"}
+          </button>
+        }
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Indicador
+          etiqueta="IVA retenido a nuestro favor"
+          valor={usd(totalIva)}
+          tono="exito"
+          icono={Receipt}
+        />
+        <Indicador
+          etiqueta="Renta retenida a nuestro favor"
+          valor={usd(totalRenta)}
+          tono="exito"
+          icono={Receipt}
+        />
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <div className="text-xs uppercase tracking-wide text-slate-500">
-            IVA retenido a nuestro favor
-          </div>
-          <div className="mt-1 text-xl font-semibold tabular-nums text-emerald-700">
-            {usd(totalIva)}
-          </div>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <div className="text-xs uppercase tracking-wide text-slate-500">
-            Renta retenida a nuestro favor
-          </div>
-          <div className="mt-1 text-xl font-semibold tabular-nums text-emerald-700">
-            {usd(totalRenta)}
-          </div>
-        </div>
-      </div>
-
-      {aviso && (
-        <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{aviso}</p>
-      )}
-      {error && <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
+      {aviso && <Aviso tono="exito">{aviso}</Aviso>}
+      {error && <Aviso tono="peligro">{error}</Aviso>}
 
       {abierto && (
         <Formulario
@@ -108,65 +114,75 @@ export default function Retenciones() {
         />
       )}
 
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="px-3 py-2">Fecha</th>
-              <th className="px-3 py-2">Clase</th>
-              <th className="px-3 py-2">Contraparte</th>
-              <th className="px-3 py-2">Nº</th>
-              <th className="px-3 py-2 text-right">Renta</th>
-              <th className="px-3 py-2 text-right">IVA</th>
-              <th className="px-3 py-2 text-right">ISD</th>
-              <th className="px-3 py-2 text-right">Total</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {cargando && (
+      <Tarjeta titulo="Comprobantes de retención" sinRelleno>
+        <div className={`${tabla.contenedor} max-h-[70vh]`}>
+          <table className={tabla.tabla}>
+            <thead className={tabla.cabecera}>
               <tr>
-                <td colSpan={8} className="px-3 py-6 text-center text-slate-500">
-                  Cargando…
-                </td>
+                <th className={tabla.th}>Fecha</th>
+                <th className={tabla.th}>Clase</th>
+                <th className={tabla.th}>Contraparte</th>
+                <th className={tabla.th}>Nº</th>
+                <th className={`${tabla.th} text-right`}>Renta</th>
+                <th className={`${tabla.th} text-right`}>IVA</th>
+                <th className={`${tabla.th} text-right`}>ISD</th>
+                <th className={`${tabla.th} text-right`}>Total</th>
               </tr>
-            )}
-            {!cargando && filas.length === 0 && (
-              <tr>
-                <td colSpan={8} className="px-3 py-6 text-center text-slate-500">
-                  No hay retenciones registradas.
-                </td>
-              </tr>
-            )}
-            {filas.map((f) => (
-              <tr key={f.id} className="hover:bg-slate-50">
-                <td className="whitespace-nowrap px-3 py-2 text-slate-600">{fecha(f.fecha)}</td>
-                <td className="px-3 py-2">
-                  <span
-                    className={`rounded px-2 py-0.5 text-xs ${
-                      f.clase === "RECIBIDA"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-amber-100 text-amber-900"
-                    }`}
-                  >
-                    {f.clase.toLowerCase()}
-                  </span>
-                </td>
-                <td className="px-3 py-2">
-                  <div className="font-medium">{f.nombre_contraparte}</div>
-                  <div className="text-xs text-slate-400">{f.ruc_contraparte}</div>
-                </td>
-                <td className="px-3 py-2 font-mono text-xs text-slate-500">{f.numero ?? "—"}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{usd(f.ret_renta)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{usd(f.ret_iva)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{usd(f.ret_isd)}</td>
-                <td className="px-3 py-2 text-right font-medium tabular-nums">
-                  {usd(f.total_retenido)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody className={tabla.cuerpo}>
+              {cargando &&
+                filas.length === 0 &&
+                Array.from({ length: 5 }, (_, i) => (
+                  <tr key={i}>
+                    <td colSpan={8} className="px-4 py-3">
+                      <Esqueleto />
+                    </td>
+                  </tr>
+                ))}
+              {!cargando && filas.length === 0 && (
+                <tr>
+                  <td colSpan={8}>
+                    <Vacio
+                      icono={Receipt}
+                      titulo="No hay retenciones registradas"
+                      accion={
+                        !abierto && (
+                          <button onClick={() => setAbierto(true)} className={boton("secundario", "sm")}>
+                            <Plus size={14} /> Registrar comprobante
+                          </button>
+                        )
+                      }
+                    />
+                  </td>
+                </tr>
+              )}
+              {filas.map((f) => (
+                <tr key={f.id} className={tabla.fila}>
+                  <td className={`${tabla.td} whitespace-nowrap text-slate-500`}>{fecha(f.fecha)}</td>
+                  <td className={tabla.td}>
+                    <Insignia tono={f.clase === "RECIBIDA" ? "exito" : "aviso"}>
+                      {f.clase === "RECIBIDA" ? "Recibida" : "Efectuada"}
+                    </Insignia>
+                  </td>
+                  <td className={`${tabla.td} min-w-56`}>
+                    <div className="font-medium text-slate-900">{f.nombre_contraparte}</div>
+                    <div className="text-xs tabular-nums text-slate-400">{f.ruc_contraparte}</div>
+                  </td>
+                  <td className={`${tabla.td} whitespace-nowrap font-mono text-xs text-slate-500`}>
+                    {f.numero ?? "—"}
+                  </td>
+                  <td className={`${tabla.td} ${tabla.numero} text-slate-700`}>{usd(f.ret_renta)}</td>
+                  <td className={`${tabla.td} ${tabla.numero} text-slate-700`}>{usd(f.ret_iva)}</td>
+                  <td className={`${tabla.td} ${tabla.numero} text-slate-700`}>{usd(f.ret_isd)}</td>
+                  <td className={`${tabla.td} ${tabla.numero} font-medium text-slate-900`}>
+                    {usd(f.total_retenido)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Tarjeta>
     </div>
   );
 }
@@ -220,90 +236,101 @@ function Formulario({
   }
 
   return (
-    <form
-      onSubmit={enviar}
-      className="grid gap-3 rounded-lg border border-slate-200 bg-white p-5 sm:grid-cols-4"
+    <Tarjeta
+      titulo="Registrar comprobante de retención"
+      descripcion="El valor retenido se calcula a partir de la base y el porcentaje."
     >
-      <label className="text-sm">
-        <span className="text-slate-700">Clase</span>
-        <select
-          name="clase"
-          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-        >
-          <option value="RECIBIDA">Recibida (nos retuvieron)</option>
-          <option value="EFECTUADA">Efectuada (retuvimos)</option>
-        </select>
-      </label>
+      <form onSubmit={enviar} className="space-y-6">
+        <fieldset className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <legend className="sr-only">Datos del comprobante</legend>
+          <label className="block">
+            <span className={claseEtiqueta}>Clase</span>
+            <select name="clase" className={campo}>
+              <option value="RECIBIDA">Recibida (nos retuvieron)</option>
+              <option value="EFECTUADA">Efectuada (retuvimos)</option>
+            </select>
+          </label>
 
-      <Campo etiqueta="Fecha" nombre="fecha" tipo="date" valor={HOY()} requerido />
-      <Campo etiqueta="Nº comprobante" nombre="numero" />
-      <Campo etiqueta="RUC contraparte" nombre="ruc_contraparte" requerido />
-      <Campo etiqueta="Nombre contraparte" nombre="nombre_contraparte" requerido />
+          <Campo etiqueta="Fecha" nombre="fecha" tipo="date" valor={HOY()} requerido />
+          <Campo etiqueta="Nº comprobante" nombre="numero" />
+          <Campo etiqueta="RUC contraparte" nombre="ruc_contraparte" requerido />
+          <div className="sm:col-span-2 lg:col-span-4">
+            <Campo etiqueta="Nombre contraparte" nombre="nombre_contraparte" requerido />
+          </div>
+        </fieldset>
 
-      <label className="text-sm">
-        <span className="text-slate-700">Base renta</span>
-        <input
-          name="base_renta"
-          type="number"
-          step="0.01"
-          value={baseRenta}
-          onChange={(e) => setBaseRenta(e.target.value)}
-          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-        />
-      </label>
-      <label className="text-sm">
-        <span className="text-slate-700">% renta</span>
-        <input
-          name="porc_renta"
-          type="number"
-          step="0.01"
-          value={porcRenta}
-          onChange={(e) => setPorcRenta(e.target.value)}
-          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-        />
-      </label>
-      <div className="text-sm">
-        <span className="text-slate-700">Retenido renta</span>
-        <div className="mt-1 rounded-md bg-slate-100 px-3 py-2 tabular-nums">{retRenta}</div>
+        <fieldset className="grid gap-4 border-t border-slate-100 pt-5 sm:grid-cols-3">
+          <legend className="sr-only">Retención en la fuente de renta</legend>
+          <label className="block">
+            <span className={claseEtiqueta}>Base renta</span>
+            <input
+              name="base_renta"
+              type="number"
+              step="0.01"
+              value={baseRenta}
+              onChange={(e) => setBaseRenta(e.target.value)}
+              className={`${campo} text-right tabular-nums`}
+            />
+          </label>
+          <label className="block">
+            <span className={claseEtiqueta}>% renta</span>
+            <input
+              name="porc_renta"
+              type="number"
+              step="0.01"
+              value={porcRenta}
+              onChange={(e) => setPorcRenta(e.target.value)}
+              className={`${campo} text-right tabular-nums`}
+            />
+          </label>
+          <Calculado etiqueta="Retenido renta" valor={retRenta} />
+
+          <label className="block">
+            <span className={claseEtiqueta}>Base IVA</span>
+            <input
+              name="base_iva"
+              type="number"
+              step="0.01"
+              value={baseIva}
+              onChange={(e) => setBaseIva(e.target.value)}
+              className={`${campo} text-right tabular-nums`}
+            />
+          </label>
+          <label className="block">
+            <span className={claseEtiqueta}>% IVA</span>
+            <input
+              name="porc_iva"
+              type="number"
+              step="0.01"
+              value={porcIva}
+              onChange={(e) => setPorcIva(e.target.value)}
+              className={`${campo} text-right tabular-nums`}
+            />
+          </label>
+          <Calculado etiqueta="Retenido IVA" valor={retIva} />
+
+          <Campo etiqueta="ISD" nombre="ret_isd" tipo="number" paso="0.01" valor="0" numerico />
+        </fieldset>
+
+        <div className="flex justify-end border-t border-slate-100 pt-5">
+          <button type="submit" disabled={ocupado} className={boton("primario")}>
+            {ocupado ? "Guardando…" : "Registrar y contabilizar"}
+          </button>
+        </div>
+      </form>
+    </Tarjeta>
+  );
+}
+
+/** Valor derivado, de solo lectura, alineado como los montos. */
+function Calculado({ etiqueta, valor }: { etiqueta: string; valor: string }) {
+  return (
+    <div>
+      <span className={claseEtiqueta}>{etiqueta}</span>
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-right text-sm font-medium tabular-nums text-slate-900">
+        {valor}
       </div>
-
-      <label className="text-sm">
-        <span className="text-slate-700">Base IVA</span>
-        <input
-          name="base_iva"
-          type="number"
-          step="0.01"
-          value={baseIva}
-          onChange={(e) => setBaseIva(e.target.value)}
-          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-        />
-      </label>
-      <label className="text-sm">
-        <span className="text-slate-700">% IVA</span>
-        <input
-          name="porc_iva"
-          type="number"
-          step="0.01"
-          value={porcIva}
-          onChange={(e) => setPorcIva(e.target.value)}
-          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-        />
-      </label>
-      <div className="text-sm">
-        <span className="text-slate-700">Retenido IVA</span>
-        <div className="mt-1 rounded-md bg-slate-100 px-3 py-2 tabular-nums">{retIva}</div>
-      </div>
-
-      <Campo etiqueta="ISD" nombre="ret_isd" tipo="number" paso="0.01" valor="0" />
-
-      <button
-        type="submit"
-        disabled={ocupado}
-        className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 sm:col-span-4"
-      >
-        {ocupado ? "Guardando…" : "Registrar y contabilizar"}
-      </button>
-    </form>
+    </div>
   );
 }
 
@@ -314,6 +341,7 @@ function Campo({
   paso,
   valor,
   requerido,
+  numerico,
 }: {
   etiqueta: string;
   nombre: string;
@@ -321,17 +349,18 @@ function Campo({
   paso?: string;
   valor?: string;
   requerido?: boolean;
+  numerico?: boolean;
 }) {
   return (
-    <label className="text-sm">
-      <span className="text-slate-700">{etiqueta}</span>
+    <label className="block">
+      <span className={claseEtiqueta}>{etiqueta}</span>
       <input
         name={nombre}
         type={tipo}
         step={paso}
         defaultValue={valor}
         required={requerido}
-        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+        className={numerico ? `${campo} text-right tabular-nums` : campo}
       />
     </label>
   );

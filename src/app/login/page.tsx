@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, LoaderCircle } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/client";
+import { Aviso, boton, campo, etiqueta } from "@/components/ui";
 
 function Formulario() {
   const router = useRouter();
@@ -48,81 +49,104 @@ function Formulario() {
   }
 
   return (
-    <div className="mx-auto mt-16 max-w-sm rounded-lg border border-slate-200 bg-white p-6">
-      <h1 className="text-xl font-semibold">
-        Contable<span className="text-emerald-600">MAP</span>
-      </h1>
-      <p className="mt-1 text-sm text-slate-500">
-        {modo === "entrar" ? "Entra con tu correo" : "Crea tu cuenta"}
-      </p>
-
-      <form onSubmit={enviar} className="mt-5 space-y-3">
-        <label className="block">
-          <span className="text-sm text-slate-700">Correo</span>
-          <input
-            type="email"
-            required
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500"
-          />
-        </label>
-
-        <label className="block">
-          <span className="text-sm text-slate-700">Contraseña</span>
-          <div className="relative mt-1">
-            <input
-              type={verClave ? "text" : "password"}
-              required
-              minLength={8}
-              autoComplete={modo === "entrar" ? "current-password" : "new-password"}
-              value={clave}
-              onChange={(e) => setClave(e.target.value)}
-              className="w-full rounded-md border border-slate-300 py-2 pl-3 pr-10 text-sm outline-none focus:border-emerald-500"
-            />
-            <button
-              type="button"
-              onClick={() => setVerClave(!verClave)}
-              // Sin `type="button"` este control enviaría el formulario.
-              aria-label={verClave ? "Ocultar contraseña" : "Mostrar contraseña"}
-              aria-pressed={verClave}
-              title={verClave ? "Ocultar contraseña" : "Mostrar contraseña"}
-              className="absolute inset-y-0 right-0 flex items-center rounded-r-md px-3 text-slate-400 transition-colors hover:text-slate-700 focus:outline-none focus-visible:text-emerald-600"
-            >
-              {verClave ? <EyeOff size={18} aria-hidden /> : <Eye size={18} aria-hidden />}
-            </button>
-          </div>
-        </label>
-
-        {error && (
-          <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>
-        )}
-        {mensaje && (
-          <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-            {mensaje}
+    // La navegación no se muestra aquí (sin sesión no hay a dónde ir), así
+    // que la tarjeta se centra en todo el alto disponible.
+    <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center py-8">
+      <div className="w-full max-w-sm">
+        <div className="mb-6 flex flex-col items-center text-center">
+          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-600 text-lg font-bold text-white shadow-sm">
+            M
+          </span>
+          <p className="mt-3 text-lg font-semibold tracking-tight text-slate-900">
+            Contable<span className="text-emerald-600">MAP</span>
           </p>
-        )}
+        </div>
 
-        <button
-          type="submit"
-          disabled={cargando}
-          className="w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
-        >
-          {cargando ? "Un momento…" : modo === "entrar" ? "Entrar" : "Registrarme"}
-        </button>
-      </form>
+        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+            {modo === "entrar" ? "Inicia sesión" : "Crea tu cuenta"}
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            {modo === "entrar" ? "Entra con tu correo" : "Regístrate con tu correo"}
+          </p>
 
-      <button
-        onClick={() => {
-          setModo(modo === "entrar" ? "registrar" : "entrar");
-          setError(null);
-          setMensaje(null);
-        }}
-        className="mt-4 text-sm text-slate-500 underline hover:text-slate-700"
-      >
-        {modo === "entrar" ? "No tengo cuenta" : "Ya tengo cuenta"}
-      </button>
+          <form onSubmit={enviar} className="mt-6 space-y-4">
+            <div>
+              <label htmlFor="correo" className={etiqueta}>
+                Correo
+              </label>
+              <input
+                id="correo"
+                type="email"
+                required
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="tu@correo.com"
+                className={campo}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="clave" className={etiqueta}>
+                Contraseña
+              </label>
+              <div className="relative">
+                <input
+                  id="clave"
+                  type={verClave ? "text" : "password"}
+                  required
+                  minLength={8}
+                  autoComplete={modo === "entrar" ? "current-password" : "new-password"}
+                  value={clave}
+                  onChange={(e) => setClave(e.target.value)}
+                  className={`${campo} pr-10`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setVerClave(!verClave)}
+                  // Sin `type="button"` este control enviaría el formulario.
+                  aria-label={verClave ? "Ocultar contraseña" : "Mostrar contraseña"}
+                  aria-pressed={verClave}
+                  title={verClave ? "Ocultar contraseña" : "Mostrar contraseña"}
+                  className="absolute inset-y-0 right-0 flex items-center rounded-r-lg px-3 text-slate-400 transition-colors hover:text-slate-700 focus:outline-none focus-visible:text-emerald-600"
+                >
+                  {verClave ? <EyeOff size={18} aria-hidden /> : <Eye size={18} aria-hidden />}
+                </button>
+              </div>
+              {modo === "registrar" && (
+                <p className="mt-1.5 text-xs text-slate-400">Mínimo 8 caracteres.</p>
+              )}
+            </div>
+
+            {error && <Aviso tono="peligro">{error}</Aviso>}
+            {mensaje && <Aviso tono="exito">{mensaje}</Aviso>}
+
+            <button
+              type="submit"
+              disabled={cargando}
+              className={`${boton("primario")} h-10 w-full`}
+            >
+              {cargando && <LoaderCircle size={16} className="animate-spin" />}
+              {cargando ? "Un momento…" : modo === "entrar" ? "Entrar" : "Registrarme"}
+            </button>
+          </form>
+        </div>
+
+        <p className="mt-5 text-center text-sm text-slate-500">
+          {modo === "entrar" ? "¿Aún no tienes cuenta? " : "¿Ya tienes cuenta? "}
+          <button
+            onClick={() => {
+              setModo(modo === "entrar" ? "registrar" : "entrar");
+              setError(null);
+              setMensaje(null);
+            }}
+            className="font-medium text-emerald-700 underline-offset-2 hover:underline"
+          >
+            {modo === "entrar" ? "Regístrate" : "Entra"}
+          </button>
+        </p>
+      </div>
     </div>
   );
 }

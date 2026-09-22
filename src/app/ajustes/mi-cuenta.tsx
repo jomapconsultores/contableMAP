@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { useCarga } from "@/lib/carga";
+import { Aviso, Esqueleto, Tarjeta, boton, campo, etiqueta } from "@/components/ui";
 
 interface Perfil {
   email: string;
@@ -12,8 +13,11 @@ interface Perfil {
 
 const VACIO: Perfil = { email: "", nombre: "", telefono: "", cargo: "" };
 
-const CAMPO =
-  "mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500";
+/** Texto de ayuda bajo un campo. */
+const AYUDA = "mt-1.5 text-xs text-slate-500";
+
+/** Título de cada bloque dentro de la tarjeta. */
+const SUBTITULO = "text-xs font-semibold uppercase tracking-wider text-slate-500 sm:col-span-2";
 
 export default function MiCuenta() {
   const [perfil, setPerfil] = useState<Perfil>(VACIO);
@@ -32,21 +36,30 @@ export default function MiCuenta() {
   useCarga(pedir, aplicar);
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5">
-      <h2 className="font-medium">Mi cuenta</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        Tus datos y tu contraseña. No afectan a la contabilidad de la entidad.
-      </p>
-
+    <Tarjeta
+      titulo="Mi cuenta"
+      descripcion="Tus datos y tu contraseña. No afectan a la contabilidad de la entidad."
+    >
       {cargando ? (
-        <p className="mt-4 text-sm text-slate-500">Cargando…</p>
+        <div className="grid gap-8 lg:grid-cols-2" aria-busy="true" aria-label="Cargando">
+          {[0, 1].map((i) => (
+            <div key={i} className="space-y-3">
+              <Esqueleto className="h-3 w-32" />
+              <Esqueleto className="h-9 w-full" />
+              <Esqueleto className="h-9 w-full" />
+              <Esqueleto className="h-9 w-2/3" />
+            </div>
+          ))}
+        </div>
       ) : (
-        <div className="mt-4 grid gap-6 lg:grid-cols-2">
+        <div className="grid gap-8 lg:grid-cols-2 lg:divide-x lg:divide-slate-100">
           <DatosPersonales perfil={perfil} alGuardar={setPerfil} />
-          <CambiarClave />
+          <div className="lg:pl-8">
+            <CambiarClave />
+          </div>
         </div>
       )}
-    </section>
+    </Tarjeta>
   );
 }
 
@@ -89,54 +102,76 @@ function DatosPersonales({
   }
 
   return (
-    <form onSubmit={guardar} className="grid gap-3 content-start">
-      <h3 className="text-sm font-medium text-slate-700">Datos personales</h3>
+    <form onSubmit={guardar} className="grid content-start gap-4 sm:grid-cols-2">
+      <h3 className={SUBTITULO}>Datos personales</h3>
 
-      <label className="block text-sm">
-        <span className="text-slate-700">Correo</span>
-        <input value={perfil.email} disabled className={`${CAMPO} bg-slate-50 text-slate-500`} />
-        <span className="mt-1 block text-xs text-slate-500">
-          El correo de acceso no se cambia desde aquí.
-        </span>
-      </label>
+      <div className="sm:col-span-2">
+        <label htmlFor="cuenta-email" className={etiqueta}>
+          Correo
+        </label>
+        <input id="cuenta-email" value={perfil.email} disabled className={campo} />
+        <p className={AYUDA}>El correo de acceso no se cambia desde aquí.</p>
+      </div>
 
-      <label className="block text-sm">
-        <span className="text-slate-700">Nombre completo</span>
-        <input name="nombre" defaultValue={perfil.nombre} required maxLength={120} className={CAMPO} />
-      </label>
-
-      <label className="block text-sm">
-        <span className="text-slate-700">Teléfono</span>
+      <div className="sm:col-span-2">
+        <label htmlFor="cuenta-nombre" className={etiqueta}>
+          Nombre completo
+        </label>
         <input
+          id="cuenta-nombre"
+          name="nombre"
+          defaultValue={perfil.nombre}
+          required
+          maxLength={120}
+          autoComplete="name"
+          className={campo}
+        />
+      </div>
+
+      <div>
+        <label htmlFor="cuenta-telefono" className={etiqueta}>
+          Teléfono
+        </label>
+        <input
+          id="cuenta-telefono"
           name="telefono"
           type="tel"
           defaultValue={perfil.telefono}
           placeholder="09XXXXXXXX"
-          className={CAMPO}
+          autoComplete="tel"
+          className={campo}
         />
-      </label>
+      </div>
 
-      <label className="block text-sm">
-        <span className="text-slate-700">Cargo</span>
-        <input name="cargo" defaultValue={perfil.cargo} maxLength={80} className={CAMPO} />
-      </label>
+      <div>
+        <label htmlFor="cuenta-cargo" className={etiqueta}>
+          Cargo
+        </label>
+        <input
+          id="cuenta-cargo"
+          name="cargo"
+          defaultValue={perfil.cargo}
+          maxLength={80}
+          className={campo}
+        />
+      </div>
 
       {error && (
-        <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>
+        <div className="sm:col-span-2">
+          <Aviso tono="peligro">{error}</Aviso>
+        </div>
       )}
       {hecho && (
-        <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-          Datos guardados.
-        </p>
+        <div className="sm:col-span-2">
+          <Aviso tono="exito">Datos guardados.</Aviso>
+        </div>
       )}
 
-      <button
-        type="submit"
-        disabled={ocupado}
-        className="justify-self-start rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-      >
-        {ocupado ? "Guardando…" : "Guardar datos"}
-      </button>
+      <div className="sm:col-span-2">
+        <button type="submit" disabled={ocupado} className={boton("primario")}>
+          {ocupado ? "Guardando…" : "Guardar datos"}
+        </button>
+      </div>
     </form>
   );
 }
@@ -178,61 +213,73 @@ function CambiarClave() {
   }
 
   return (
-    <form onSubmit={cambiar} className="grid gap-3 content-start">
-      <h3 className="text-sm font-medium text-slate-700">Cambiar contraseña</h3>
+    <form onSubmit={cambiar} className="grid content-start gap-4 sm:grid-cols-2">
+      <h3 className={SUBTITULO}>Cambiar contraseña</h3>
 
-      <label className="block text-sm">
-        <span className="text-slate-700">Contraseña actual</span>
+      <div className="sm:col-span-2">
+        <label htmlFor="clave-actual" className={etiqueta}>
+          Contraseña actual
+        </label>
         <input
+          id="clave-actual"
           name="actual"
           type="password"
           required
           autoComplete="current-password"
-          className={CAMPO}
+          className={campo}
         />
-      </label>
+      </div>
 
-      <label className="block text-sm">
-        <span className="text-slate-700">Contraseña nueva</span>
+      <div>
+        <label htmlFor="clave-nueva" className={etiqueta}>
+          Contraseña nueva
+        </label>
         <input
+          id="clave-nueva"
           name="nueva"
           type="password"
           required
           minLength={8}
           autoComplete="new-password"
-          className={CAMPO}
+          aria-describedby="clave-nueva-ayuda"
+          className={campo}
         />
-        <span className="mt-1 block text-xs text-slate-500">Mínimo 8 caracteres.</span>
-      </label>
+        <p id="clave-nueva-ayuda" className={AYUDA}>
+          Mínimo 8 caracteres.
+        </p>
+      </div>
 
-      <label className="block text-sm">
-        <span className="text-slate-700">Repetir la nueva</span>
+      <div>
+        <label htmlFor="clave-repetir" className={etiqueta}>
+          Repetir la nueva
+        </label>
         <input
+          id="clave-repetir"
           name="repetir"
           type="password"
           required
           minLength={8}
           autoComplete="new-password"
-          className={CAMPO}
+          className={campo}
         />
-      </label>
+      </div>
 
       {error && (
-        <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>
+        <div className="sm:col-span-2">
+          <Aviso tono="peligro">{error}</Aviso>
+        </div>
       )}
       {hecho && (
-        <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-          Contraseña cambiada. La próxima vez entra con la nueva.
-        </p>
+        <div className="sm:col-span-2">
+          <Aviso tono="exito">Contraseña cambiada. La próxima vez entra con la nueva.</Aviso>
+        </div>
       )}
 
-      <button
-        type="submit"
-        disabled={ocupado}
-        className="justify-self-start rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-      >
-        {ocupado ? "Cambiando…" : "Cambiar contraseña"}
-      </button>
+      <div className="sm:col-span-2">
+        <button type="submit" disabled={ocupado} className={boton("primario")}>
+          {ocupado ? "Cambiando…" : "Cambiar contraseña"}
+        </button>
+      </div>
     </form>
   );
 }

@@ -4,6 +4,18 @@ import { Suspense, useCallback, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { usd, fecha } from "@/lib/formato";
 import { useCarga } from "@/lib/carga";
+import { CheckCheck, FileText } from "lucide-react";
+import {
+  Aviso,
+  Encabezado,
+  Esqueleto,
+  Insignia,
+  Tarjeta,
+  Vacio,
+  boton,
+  campo,
+  tabla,
+} from "@/components/ui";
 
 interface Comprobante {
   id: string;
@@ -47,7 +59,7 @@ interface Categoria {
  */
 export default function Comprobantes() {
   return (
-    <Suspense fallback={<p className="text-sm text-slate-500">Cargando…</p>}>
+    <Suspense fallback={<Esqueleto className="h-96 w-full" />}>
       <Listado />
     </Suspense>
   );
@@ -143,36 +155,51 @@ function Listado() {
 
   const esCompra = clase === "compras";
 
+  const columnas = esCompra ? 9 : 7;
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Comprobantes</h1>
-          <p className="text-sm text-slate-600">
-            Facturas extraídas de documentos o dictadas. Aquí se ajusta el
-            tratamiento tributario y se convierten en asientos.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex rounded-md border border-slate-300 bg-white text-sm">
-            {(["compras", "ventas"] as const).map((c) => (
-              <button
-                key={c}
-                onClick={() => {
-                  router.replace(c === "ventas" ? "/comprobantes?clase=ventas" : "/comprobantes", {
-                    scroll: false,
-                  });
-                  setCargando(true);
-                }}
-                className={`px-3 py-2 first:rounded-l-md last:rounded-r-md ${
-                  clase === c ? "bg-emerald-600 text-white" : "hover:bg-slate-100"
-                }`}
-              >
-                {c === "compras" ? "Compras" : "Ventas"}
-              </button>
-            ))}
+    <div className="space-y-6">
+      <Encabezado
+        titulo="Comprobantes"
+        descripcion="Facturas extraídas de documentos o dictadas. Aquí se ajusta el tratamiento tributario y se convierten en asientos."
+        acciones={
+          <button onClick={contabilizar} disabled={ocupado} className={boton("primario")}>
+            <CheckCheck size={16} />
+            {ocupado ? "Contabilizando…" : "Contabilizar pendientes"}
+          </button>
+        }
+      />
+
+      {aviso && <Aviso tono="exito">{aviso}</Aviso>}
+      {error && <Aviso tono="peligro">{error}</Aviso>}
+
+      <Tarjeta sinRelleno>
+        {/* Compras o ventas, y el filtro de pendientes */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-3">
+          <div className="flex gap-1">
+            {(["compras", "ventas"] as const).map((c) => {
+              const activa = clase === c;
+              return (
+                <button
+                  key={c}
+                  onClick={() => {
+                    router.replace(c === "ventas" ? "/comprobantes?clase=ventas" : "/comprobantes", {
+                      scroll: false,
+                    });
+                    setCargando(true);
+                  }}
+                  className={`-mb-px flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm transition-colors ${
+                    activa
+                      ? "border-emerald-600 font-medium text-emerald-700"
+                      : "border-transparent text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  {c === "compras" ? "Compras" : "Ventas"}
+                </button>
+              );
+            })}
           </div>
-          <label className="flex items-center gap-1.5 text-sm text-slate-600">
+          <label className="flex items-center gap-2 px-2 py-2 text-sm text-slate-600">
             <input
               type="checkbox"
               checked={soloPendientes}
@@ -180,136 +207,146 @@ function Listado() {
                 setSoloPendientes(e.target.checked);
                 setCargando(true);
               }}
+              className="h-4 w-4 rounded border-slate-300 accent-emerald-600"
             />
             Solo sin contabilizar
           </label>
-          <button
-            onClick={contabilizar}
-            disabled={ocupado}
-            className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-          >
-            Contabilizar pendientes
-          </button>
         </div>
-      </div>
 
-      {aviso && (
-        <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{aviso}</p>
-      )}
-      {error && <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
-
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="px-3 py-2">Fecha</th>
-              <th className="px-3 py-2">{esCompra ? "Proveedor" : "Cliente"}</th>
-              <th className="px-3 py-2">Nº</th>
-              <th className="px-3 py-2 text-right">Base</th>
-              <th className="px-3 py-2 text-right">IVA</th>
-              <th className="px-3 py-2 text-right">Total</th>
-              {esCompra && <th className="px-3 py-2">Categoría</th>}
-              {esCompra && <th className="px-3 py-2 text-center">Créd. IVA</th>}
-              <th className="px-3 py-2">Estado</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {cargando && (
+        <div className={`${tabla.contenedor} max-h-[70vh]`}>
+          <table className={tabla.tabla}>
+            <thead className={tabla.cabecera}>
               <tr>
-                <td colSpan={9} className="px-3 py-6 text-center text-slate-500">
-                  Cargando…
-                </td>
+                <th className={tabla.th}>Fecha</th>
+                <th className={tabla.th}>{esCompra ? "Proveedor" : "Cliente"}</th>
+                <th className={tabla.th}>Nº</th>
+                <th className={`${tabla.th} text-right`}>Base</th>
+                <th className={`${tabla.th} text-right`}>IVA</th>
+                <th className={`${tabla.th} text-right`}>Total</th>
+                {esCompra && <th className={tabla.th}>Categoría</th>}
+                {esCompra && (
+                  <th className={`${tabla.th} text-center`} title="Da derecho a crédito tributario de IVA">
+                    Créd. IVA
+                  </th>
+                )}
+                <th className={tabla.th}>Estado</th>
               </tr>
-            )}
-            {!cargando && filas.length === 0 && (
-              <tr>
-                <td colSpan={9} className="px-3 py-6 text-center text-slate-500">
-                  No hay comprobantes registrados.
-                </td>
-              </tr>
-            )}
-            {filas.map((f) => {
-              const base =
-                Number(f.base_0) + Number(f.base_5) + Number(f.base_8) + Number(f.base_15) +
-                Number(f.no_objeto_iva) + Number(f.exento_iva);
-              const iva = Number(f.iva_5) + Number(f.iva_8) + Number(f.iva_15);
-              const bloqueado = Boolean(f.asiento_id);
-
-              return (
-                <tr key={f.id} className="hover:bg-slate-50">
-                  <td className="whitespace-nowrap px-3 py-2 text-slate-600">{fecha(f.fecha)}</td>
-                  <td className="px-3 py-2">
-                    <div className="font-medium">
-                      {esCompra ? f.nombre_proveedor : f.razon_social_cliente}
-                    </div>
-                    <div className="text-xs text-slate-400">
-                      {esCompra ? f.ruc_proveedor : f.id_cliente}
-                    </div>
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-slate-500">
-                    {f.numero}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">{usd(base)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-slate-500">{usd(iva)}</td>
-                  <td className="px-3 py-2 text-right font-medium tabular-nums">{usd(f.total)}</td>
-
-                  {esCompra && (
-                    <td className="px-3 py-2">
-                      <select
-                        value={f.categoria_id ?? ""}
-                        disabled={bloqueado}
-                        onChange={(e) => actualizar(f.id, { categoria_id: e.target.value })}
-                        className="w-40 rounded border border-slate-300 px-2 py-1 text-xs disabled:bg-slate-100"
-                      >
-                        <option value="">— sin clasificar —</option>
-                        {categorias.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.nombre}
-                          </option>
-                        ))}
-                      </select>
-                      {f.rubro_personal && (
-                        <div className="mt-0.5 text-[11px] text-emerald-700">
-                          gasto personal · {f.rubro_personal.toLowerCase()}
-                        </div>
-                      )}
+            </thead>
+            <tbody className={tabla.cuerpo}>
+              {cargando &&
+                filas.length === 0 &&
+                Array.from({ length: 6 }, (_, i) => (
+                  <tr key={i}>
+                    <td colSpan={columnas} className="px-4 py-3">
+                      <Esqueleto />
                     </td>
-                  )}
-
-                  {esCompra && (
-                    <td className="px-3 py-2 text-center">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(f.da_credito_iva)}
-                        disabled={bloqueado}
-                        onChange={(e) => actualizar(f.id, { da_credito_iva: e.target.checked })}
-                        title="Da derecho a crédito tributario de IVA"
-                      />
-                    </td>
-                  )}
-
-                  <td className="whitespace-nowrap px-3 py-2 text-xs">
-                    {bloqueado ? (
-                      <span className="rounded bg-emerald-100 px-2 py-0.5 text-emerald-800">
-                        contabilizado
-                      </span>
-                    ) : f.a_credito ? (
-                      <span className="rounded bg-sky-100 px-2 py-0.5 text-sky-800">a crédito</span>
-                    ) : (
-                      <span className="text-slate-400">pendiente</span>
-                    )}
+                  </tr>
+                ))}
+              {!cargando && filas.length === 0 && (
+                <tr>
+                  <td colSpan={columnas}>
+                    <Vacio
+                      icono={FileText}
+                      titulo={
+                        soloPendientes
+                          ? "No hay comprobantes sin contabilizar"
+                          : "No hay comprobantes registrados"
+                      }
+                    />
                   </td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+              )}
+              {filas.map((f) => {
+                const base =
+                  Number(f.base_0) + Number(f.base_5) + Number(f.base_8) + Number(f.base_15) +
+                  Number(f.no_objeto_iva) + Number(f.exento_iva);
+                const iva = Number(f.iva_5) + Number(f.iva_8) + Number(f.iva_15);
+                const bloqueado = Boolean(f.asiento_id);
 
-      <p className="text-xs text-slate-500">
-        Cambiar la categoría de una compra guarda la corrección en el mapa por
-        RUC: las siguientes facturas de ese proveedor se clasificarán igual.
-      </p>
+                return (
+                  <tr key={f.id} className={tabla.fila}>
+                    <td className={`${tabla.td} whitespace-nowrap text-slate-500`}>
+                      {fecha(f.fecha)}
+                    </td>
+                    <td className={`${tabla.td} min-w-56`}>
+                      <div className="font-medium text-slate-900">
+                        {esCompra ? f.nombre_proveedor : f.razon_social_cliente}
+                      </div>
+                      <div className="text-xs tabular-nums text-slate-400">
+                        {esCompra ? f.ruc_proveedor : f.id_cliente}
+                      </div>
+                    </td>
+                    <td className={`${tabla.td} whitespace-nowrap font-mono text-xs text-slate-500`}>
+                      {f.numero}
+                    </td>
+                    <td className={`${tabla.td} ${tabla.numero} text-slate-700`}>{usd(base)}</td>
+                    <td className={`${tabla.td} ${tabla.numero} text-slate-500`}>{usd(iva)}</td>
+                    <td className={`${tabla.td} ${tabla.numero} font-medium text-slate-900`}>
+                      {usd(f.total)}
+                    </td>
+
+                    {esCompra && (
+                      <td className={tabla.td}>
+                        <select
+                          value={f.categoria_id ?? ""}
+                          disabled={bloqueado}
+                          onChange={(e) => actualizar(f.id, { categoria_id: e.target.value })}
+                          className={`${campo} w-48 py-1.5 text-xs ${
+                            f.categoria_id || bloqueado ? "" : "border-amber-300 bg-amber-50"
+                          }`}
+                        >
+                          <option value="">— sin clasificar —</option>
+                          {categorias.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.nombre}
+                            </option>
+                          ))}
+                        </select>
+                        {f.rubro_personal && (
+                          <div className="mt-1 text-[11px] text-emerald-700">
+                            Gasto personal · {f.rubro_personal.toLowerCase()}
+                          </div>
+                        )}
+                      </td>
+                    )}
+
+                    {esCompra && (
+                      <td className={`${tabla.td} text-center`}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(f.da_credito_iva)}
+                          disabled={bloqueado}
+                          onChange={(e) => actualizar(f.id, { da_credito_iva: e.target.checked })}
+                          title="Da derecho a crédito tributario de IVA"
+                          aria-label="Da derecho a crédito tributario de IVA"
+                          className="h-4 w-4 rounded border-slate-300 accent-emerald-600 disabled:opacity-50"
+                        />
+                      </td>
+                    )}
+
+                    <td className={`${tabla.td} whitespace-nowrap`}>
+                      {bloqueado ? (
+                        <Insignia tono="exito">Contabilizado</Insignia>
+                      ) : f.a_credito ? (
+                        <Insignia tono="info">A crédito</Insignia>
+                      ) : (
+                        <Insignia>Pendiente</Insignia>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {esCompra && (
+          <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
+            Cambiar la categoría de una compra guarda la corrección en el mapa por
+            RUC: las siguientes facturas de ese proveedor se clasificarán igual.
+          </p>
+        )}
+      </Tarjeta>
     </div>
   );
 }

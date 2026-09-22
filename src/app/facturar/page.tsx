@@ -1,9 +1,24 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { Download, ExternalLink, Plus, Receipt, RotateCw, Send, Settings, Trash2 } from "lucide-react";
 import { useCarga } from "@/lib/carga";
 import { calcularTotales, type ItemFactura } from "@/lib/sri/xml";
 import { FORMAS_PAGO } from "@/lib/sri/catalogos";
+import {
+  Aviso,
+  Encabezado,
+  Esqueleto,
+  Insignia,
+  Tarjeta,
+  Vacio,
+  boton,
+  campo,
+  etiqueta,
+  tabla,
+  type Tono,
+} from "@/components/ui";
 
 /**
  * Emisión de facturas electrónicas.
@@ -48,8 +63,8 @@ interface Linea extends ItemFactura {
   clave: number;
 }
 
-const CAMPO =
-  "mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500";
+/** Campo compacto para las celdas del detalle. */
+const CELDA = `${campo} py-1.5`;
 
 const TARIFAS: { valor: string; texto: string }[] = [
   { valor: "15", texto: "IVA 15 %" },
@@ -105,23 +120,26 @@ export default function Facturar() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-semibold">Facturar</h1>
-        {config?.configurado && (
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-medium ${
-              config.ambiente === 2
-                ? "bg-emerald-50 text-emerald-800"
-                : "bg-amber-50 text-amber-800"
-            }`}
-          >
-            {config.ambiente === 2 ? "Producción" : "Ambiente de pruebas · sin validez tributaria"}
-          </span>
-        )}
-      </div>
+      <Encabezado
+        titulo="Facturar"
+        descripcion="Facturas electrónicas firmadas y enviadas al SRI. Solo valen cuando el SRI las autoriza."
+        acciones={
+          config?.configurado && (
+            <Insignia tono={config.ambiente === 2 ? "exito" : "aviso"}>
+              {config.ambiente === 2 ? "Producción" : "Ambiente de pruebas · sin validez tributaria"}
+            </Insignia>
+          )
+        }
+      />
 
       {cargando ? (
-        <p className="text-sm text-slate-500">Cargando…</p>
+        <Tarjeta titulo="Nueva factura">
+          <div className="space-y-3">
+            <Esqueleto className="h-9 w-full" />
+            <Esqueleto className="h-9 w-full" />
+            <Esqueleto className="h-24 w-full" />
+          </div>
+        </Tarjeta>
       ) : !listo ? (
         <SinConfigurar config={config} />
       ) : (
@@ -143,17 +161,21 @@ function SinConfigurar({ config }: { config: Config | null }) {
   }
 
   return (
-    <section className="rounded-lg border border-amber-200 bg-amber-50 p-5">
-      <h2 className="font-medium text-amber-900">Falta configurar la facturación electrónica</h2>
-      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">
+    <Aviso
+      tono="aviso"
+      titulo="Falta configurar la facturación electrónica"
+      acciones={
+        <Link href="/ajustes" className={boton("secundario", "sm")}>
+          <Settings size={14} /> Ir a Ajustes
+        </Link>
+      }
+    >
+      <ul className="mt-1 list-disc space-y-1 pl-5">
         {faltan.map((f) => (
           <li key={f}>{f}</li>
         ))}
       </ul>
-      <a href="/ajustes" className="mt-3 inline-block text-sm font-medium text-emerald-800 underline">
-        Ir a Ajustes
-      </a>
-    </section>
+    </Aviso>
   );
 }
 
@@ -239,15 +261,16 @@ function Formulario({ config, alEmitir }: { config: Config; alEmitir: () => Prom
     await alEmitir();
   }
 
-  return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5">
-      <h2 className="font-medium">Nueva factura</h2>
+  const sinTotal = ocupado !== null || !totales || totales.importeTotal <= 0;
 
-      <form onSubmit={enviar} className="mt-4 space-y-5">
-        <div className="grid gap-3 sm:grid-cols-4">
-          <label className="block text-sm">
-            <span className="text-slate-700">Punto de emisión</span>
-            <select name="punto_emision_id" className={CAMPO}>
+  return (
+    <Tarjeta titulo="Nueva factura" descripcion="Lo que ves aquí es exactamente lo que se firma y se envía.">
+      <form onSubmit={enviar} className="space-y-6">
+        {/* Datos de la emisión */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="block">
+            <span className={etiqueta}>Punto de emisión</span>
+            <select name="punto_emision_id" className={campo}>
               {config.puntos_emision
                 .filter((p) => p.activo)
                 .map((p) => (
@@ -259,23 +282,23 @@ function Formulario({ config, alEmitir }: { config: Config; alEmitir: () => Prom
             </select>
           </label>
 
-          <label className="block text-sm">
-            <span className="text-slate-700">Fecha de emisión</span>
+          <label className="block">
+            <span className={etiqueta}>Fecha de emisión</span>
             <input
               type="date"
               name="fecha"
               defaultValue={new Date().toISOString().slice(0, 10)}
-              className={CAMPO}
+              className={campo}
             />
           </label>
 
-          <label className="block text-sm">
-            <span className="text-slate-700">Forma de pago</span>
+          <label className="block">
+            <span className={etiqueta}>Forma de pago</span>
             <select
               name="forma_pago"
               value={formaPago}
               onChange={(e) => setFormaPago(e.target.value)}
-              className={CAMPO}
+              className={campo}
             >
               {Object.entries(FORMAS_PAGO).map(([codigo, texto]) => (
                 <option key={codigo} value={codigo}>
@@ -285,150 +308,168 @@ function Formulario({ config, alEmitir }: { config: Config; alEmitir: () => Prom
             </select>
           </label>
 
-          <label className="mt-6 flex items-center gap-2 text-sm">
-            <input type="checkbox" name="a_credito" />
+          <label className="flex h-9 items-center gap-2 self-end rounded-lg border border-slate-200 px-3 text-sm text-slate-700 hover:bg-slate-50">
+            <input
+              type="checkbox"
+              name="a_credito"
+              className="h-4 w-4 rounded border-slate-300 accent-emerald-600"
+            />
             <span>A crédito</span>
           </label>
         </div>
 
-        <fieldset className="grid gap-3 rounded-md border border-slate-200 p-4 sm:grid-cols-3">
-          <legend className="px-1 text-sm font-medium">Cliente</legend>
+        {/* Cliente */}
+        <fieldset className="rounded-lg border border-slate-200 bg-slate-50/50 p-4">
+          <legend className="px-1 text-sm font-semibold text-slate-900">Cliente</legend>
 
-          <label className="block text-sm">
-            <span className="text-slate-700">Tipo de identificación</span>
-            <select
-              name="tipo_id_cliente"
-              value={tipoId}
-              onChange={(e) => setTipoId(e.target.value)}
-              className={CAMPO}
-            >
-              <option value="RUC">RUC</option>
-              <option value="CEDULA">Cédula</option>
-              <option value="PASAPORTE">Pasaporte</option>
-              <option value="IDENT_EXTERIOR">Identificación del exterior</option>
-              <option value="CONSUMIDOR_FINAL">Consumidor final</option>
-            </select>
-          </label>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <label className="block">
+              <span className={etiqueta}>Tipo de identificación</span>
+              <select
+                name="tipo_id_cliente"
+                value={tipoId}
+                onChange={(e) => setTipoId(e.target.value)}
+                className={campo}
+              >
+                <option value="RUC">RUC</option>
+                <option value="CEDULA">Cédula</option>
+                <option value="PASAPORTE">Pasaporte</option>
+                <option value="IDENT_EXTERIOR">Identificación del exterior</option>
+                <option value="CONSUMIDOR_FINAL">Consumidor final</option>
+              </select>
+            </label>
 
-          <label className="block text-sm">
-            <span className="text-slate-700">Identificación</span>
-            <input
-              name="id_cliente"
-              required={tipoId !== "CONSUMIDOR_FINAL"}
-              disabled={tipoId === "CONSUMIDOR_FINAL"}
-              placeholder={tipoId === "CONSUMIDOR_FINAL" ? "9999999999999" : ""}
-              className={`${CAMPO} disabled:bg-slate-100`}
-            />
-          </label>
+            <label className="block">
+              <span className={etiqueta}>Identificación</span>
+              <input
+                name="id_cliente"
+                required={tipoId !== "CONSUMIDOR_FINAL"}
+                disabled={tipoId === "CONSUMIDOR_FINAL"}
+                placeholder={tipoId === "CONSUMIDOR_FINAL" ? "9999999999999" : ""}
+                className={`${campo} tabular-nums`}
+              />
+            </label>
 
-          <label className="block text-sm">
-            <span className="text-slate-700">Razón social</span>
-            <input
-              name="razon_social_cliente"
-              required={tipoId !== "CONSUMIDOR_FINAL"}
-              disabled={tipoId === "CONSUMIDOR_FINAL"}
-              className={`${CAMPO} disabled:bg-slate-100`}
-            />
-          </label>
+            <label className="block">
+              <span className={etiqueta}>Razón social</span>
+              <input
+                name="razon_social_cliente"
+                required={tipoId !== "CONSUMIDOR_FINAL"}
+                disabled={tipoId === "CONSUMIDOR_FINAL"}
+                className={campo}
+              />
+            </label>
 
-          <label className="block text-sm sm:col-span-2">
-            <span className="text-slate-700">Dirección</span>
-            <input name="direccion_cliente" className={CAMPO} />
-          </label>
+            <label className="block sm:col-span-2">
+              <span className={etiqueta}>Dirección</span>
+              <input name="direccion_cliente" className={campo} />
+            </label>
 
-          <label className="block text-sm">
-            <span className="text-slate-700">Correo (para enviarle la factura)</span>
-            <input type="email" name="email_cliente" className={CAMPO} />
-          </label>
+            <label className="block">
+              <span className={etiqueta}>Correo (para enviarle la factura)</span>
+              <input type="email" name="email_cliente" className={campo} />
+            </label>
 
-          {tipoId === "CONSUMIDOR_FINAL" && (
-            <p className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600 sm:col-span-3">
-              El SRI solo admite consumidor final hasta $50. Por encima hay que
-              identificar al comprador.
-            </p>
-          )}
+            {tipoId === "CONSUMIDOR_FINAL" && (
+              <div className="sm:col-span-3">
+                <Aviso tono="info">
+                  El SRI solo admite consumidor final hasta $50. Por encima hay que
+                  identificar al comprador.
+                </Aviso>
+              </div>
+            )}
+          </div>
         </fieldset>
 
+        {/* Detalle */}
         <div>
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium">Detalle</h3>
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-900">Detalle</h3>
             <button
               type="button"
               onClick={() => setLineas((ls) => [...ls, lineaVacia(Date.now())])}
-              className="text-sm text-emerald-700 underline"
+              className={boton("secundario", "sm")}
             >
-              Añadir línea
+              <Plus size={14} /> Añadir línea
             </button>
           </div>
 
-          <div className="mt-2 overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-                  <th className="py-2 pr-2">Código</th>
-                  <th className="py-2 pr-2">Descripción</th>
-                  <th className="py-2 pr-2 text-right">Cantidad</th>
-                  <th className="py-2 pr-2 text-right">P. unitario</th>
-                  <th className="py-2 pr-2 text-right">Descuento</th>
-                  <th className="py-2 pr-2">IVA</th>
-                  <th className="py-2 pr-2 text-right">Subtotal</th>
-                  <th></th>
+          <div className={`${tabla.contenedor} rounded-lg border border-slate-200`}>
+            <table className={`${tabla.tabla} min-w-[760px]`}>
+              <thead className={tabla.cabecera}>
+                <tr>
+                  <th className={`${tabla.th} w-28`}>Código</th>
+                  <th className={tabla.th}>Descripción</th>
+                  <th className={`${tabla.th} w-24 text-right`}>Cantidad</th>
+                  <th className={`${tabla.th} w-28 text-right`}>P. unitario</th>
+                  <th className={`${tabla.th} w-24 text-right`}>Descuento</th>
+                  <th className={`${tabla.th} w-32`}>IVA</th>
+                  <th className={`${tabla.th} w-28 text-right`}>Subtotal</th>
+                  <th className={`${tabla.th} w-12`}>
+                    <span className="sr-only">Acciones</span>
+                  </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className={tabla.cuerpo}>
                 {lineas.map((l) => {
                   const base = Math.max(0, l.cantidad * l.precioUnitario - l.descuento);
                   return (
-                    <tr key={l.clave} className="border-b border-slate-100">
-                      <td className="py-1 pr-2">
+                    <tr key={l.clave}>
+                      <td className="px-2 py-2 pl-4">
                         <input
+                          aria-label="Código"
                           value={l.codigoPrincipal}
                           onChange={(e) => cambiar(l.clave, "codigoPrincipal", e.target.value)}
-                          className="w-24 rounded border border-slate-300 px-2 py-1"
+                          className={CELDA}
                         />
                       </td>
-                      <td className="py-1 pr-2">
+                      <td className="px-2 py-2">
                         <input
+                          aria-label="Descripción"
                           value={l.descripcion}
                           onChange={(e) => cambiar(l.clave, "descripcion", e.target.value)}
-                          className="w-full min-w-[180px] rounded border border-slate-300 px-2 py-1"
+                          className={`${CELDA} min-w-[180px]`}
                         />
                       </td>
-                      <td className="py-1 pr-2">
+                      <td className="px-2 py-2">
                         <input
+                          aria-label="Cantidad"
                           type="number"
                           step="0.000001"
                           min="0"
                           value={l.cantidad}
                           onChange={(e) => cambiar(l.clave, "cantidad", Number(e.target.value))}
-                          className="w-20 rounded border border-slate-300 px-2 py-1 text-right"
+                          className={`${CELDA} text-right tabular-nums`}
                         />
                       </td>
-                      <td className="py-1 pr-2">
+                      <td className="px-2 py-2">
                         <input
+                          aria-label="Precio unitario"
                           type="number"
                           step="0.000001"
                           min="0"
                           value={l.precioUnitario}
                           onChange={(e) => cambiar(l.clave, "precioUnitario", Number(e.target.value))}
-                          className="w-24 rounded border border-slate-300 px-2 py-1 text-right"
+                          className={`${CELDA} text-right tabular-nums`}
                         />
                       </td>
-                      <td className="py-1 pr-2">
+                      <td className="px-2 py-2">
                         <input
+                          aria-label="Descuento"
                           type="number"
                           step="0.01"
                           min="0"
                           value={l.descuento}
                           onChange={(e) => cambiar(l.clave, "descuento", Number(e.target.value))}
-                          className="w-20 rounded border border-slate-300 px-2 py-1 text-right"
+                          className={`${CELDA} text-right tabular-nums`}
                         />
                       </td>
-                      <td className="py-1 pr-2">
+                      <td className="px-2 py-2">
                         <select
+                          aria-label="IVA"
                           value={l.tarifa}
                           onChange={(e) => cambiar(l.clave, "tarifa", e.target.value)}
-                          className="rounded border border-slate-300 px-2 py-1"
+                          className={CELDA}
                         >
                           {TARIFAS.map((t) => (
                             <option key={t.valor} value={t.valor}>
@@ -437,15 +478,19 @@ function Formulario({ config, alEmitir }: { config: Config; alEmitir: () => Prom
                           ))}
                         </select>
                       </td>
-                      <td className="py-1 pr-2 text-right tabular-nums">{dinero(base)}</td>
-                      <td className="py-1 text-right">
+                      <td className={`px-2 py-2 ${tabla.numero} font-medium text-slate-900`}>
+                        {dinero(base)}
+                      </td>
+                      <td className="px-2 py-2 pr-4 text-right">
                         {lineas.length > 1 && (
                           <button
                             type="button"
                             onClick={() => setLineas((ls) => ls.filter((x) => x.clave !== l.clave))}
-                            className="text-xs text-rose-700 underline"
+                            aria-label="Quitar línea"
+                            title="Quitar línea"
+                            className={`${boton("fantasma", "sm")} px-2 text-rose-600 hover:bg-rose-50 hover:text-rose-700`}
                           >
-                            Quitar
+                            <Trash2 size={14} />
                           </button>
                         )}
                       </td>
@@ -457,66 +502,73 @@ function Formulario({ config, alEmitir }: { config: Config; alEmitir: () => Prom
           </div>
         </div>
 
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <label className="block flex-1 text-sm">
-            <span className="text-slate-700">Concepto (para el asiento contable)</span>
-            <input name="concepto" className={CAMPO} />
+        {/* Concepto y totales */}
+        <div className="flex flex-wrap items-start justify-between gap-6">
+          <label className="block min-w-64 flex-1">
+            <span className={etiqueta}>Concepto (para el asiento contable)</span>
+            <input name="concepto" className={campo} />
           </label>
 
           {totales && (
-            <dl className="min-w-[220px] space-y-1 text-sm">
+            <dl className="w-full space-y-1.5 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm sm:w-72">
               <div className="flex justify-between">
-                <dt className="text-slate-600">Subtotal</dt>
-                <dd className="tabular-nums">{dinero(totales.totalSinImpuestos)}</dd>
+                <dt className="text-slate-500">Subtotal</dt>
+                <dd className="tabular-nums text-slate-900">{dinero(totales.totalSinImpuestos)}</dd>
               </div>
               {totales.totalDescuento > 0 && (
                 <div className="flex justify-between">
-                  <dt className="text-slate-600">Descuento</dt>
-                  <dd className="tabular-nums">{dinero(totales.totalDescuento)}</dd>
+                  <dt className="text-slate-500">Descuento</dt>
+                  <dd className="tabular-nums text-slate-900">{dinero(totales.totalDescuento)}</dd>
                 </div>
               )}
               <div className="flex justify-between">
-                <dt className="text-slate-600">IVA</dt>
-                <dd className="tabular-nums">{dinero(totales.totalIva)}</dd>
+                <dt className="text-slate-500">IVA</dt>
+                <dd className="tabular-nums text-slate-900">{dinero(totales.totalIva)}</dd>
               </div>
-              <div className="flex justify-between border-t border-slate-200 pt-1 font-semibold">
-                <dt>Total</dt>
-                <dd className="tabular-nums">{dinero(totales.importeTotal)}</dd>
+              <div className="flex items-baseline justify-between border-t border-slate-200 pt-2">
+                <dt className="font-semibold text-slate-900">Total</dt>
+                <dd className="text-lg font-semibold tabular-nums tracking-tight text-slate-900">
+                  {dinero(totales.importeTotal)}
+                </dd>
               </div>
             </dl>
           )}
         </div>
 
-        {error && (
-          <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>
-        )}
+        {error && <Aviso tono="peligro">{error}</Aviso>}
 
         {resultado && <Resultado resultado={resultado} />}
 
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="submit"
-            onClick={() => (simular.current = false)}
-            disabled={ocupado !== null || !totales || totales.importeTotal <= 0}
-            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-          >
-            {ocupado === "emitir" ? "Enviando al SRI…" : "Emitir y enviar al SRI"}
-          </button>
-          <button
-            type="submit"
-            onClick={() => (simular.current = true)}
-            disabled={ocupado !== null || !totales || totales.importeTotal <= 0}
-            className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            {ocupado === "simular" ? "Generando…" : "Generar sin enviar"}
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-5">
+          <p className="max-w-md text-xs text-slate-500">
+            «Generar sin enviar» firma la factura y consume un secuencial, pero no
+            la manda al SRI: sirve para revisar el XML la primera vez.
+          </p>
+          {/* «Emitir» va primero en el DOM a propósito: Enter en el formulario
+              pulsa el primer botón de envío. Se muestra a la derecha con
+              flex-row-reverse. */}
+          <div className="flex flex-row-reverse flex-wrap gap-2">
+            <button
+              type="submit"
+              onClick={() => (simular.current = false)}
+              disabled={sinTotal}
+              className={boton("primario")}
+            >
+              <Send size={16} />
+              {ocupado === "emitir" ? "Enviando al SRI…" : "Emitir y enviar al SRI"}
+            </button>
+            <button
+              type="submit"
+              onClick={() => (simular.current = true)}
+              disabled={sinTotal}
+              className={boton("secundario")}
+            >
+              {ocupado === "simular" ? "Generando…" : "Generar sin enviar"}
+            </button>
+          </div>
         </div>
-        <p className="text-xs text-slate-500">
-          «Generar sin enviar» firma la factura y consume un secuencial, pero no
-          la manda al SRI: sirve para revisar el XML la primera vez.
-        </p>
       </form>
-    </section>
+    </Tarjeta>
   );
 }
 
@@ -536,15 +588,25 @@ function Resultado({
 }) {
   const bien = resultado.estado === "AUTORIZADA";
   return (
-    <div
-      className={`rounded-md border px-4 py-3 text-sm ${
-        bien ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"
-      }`}
+    <Aviso
+      tono={bien ? "exito" : "aviso"}
+      titulo={`Factura ${resultado.numero} · ${resultado.estado.toLowerCase().replace(/_/g, " ")}`}
+      acciones={
+        <>
+          <a
+            className={boton("secundario", "sm")}
+            href={`/api/sri/facturas/${resultado.venta_id}/ride`}
+            target="_blank"
+          >
+            <ExternalLink size={14} /> Ver RIDE
+          </a>
+          <a className={boton("secundario", "sm")} href={`/api/sri/facturas/${resultado.venta_id}/xml`}>
+            <Download size={14} /> Descargar XML
+          </a>
+        </>
+      }
     >
-      <div className="font-medium">
-        Factura {resultado.numero} · {resultado.estado.toLowerCase().replace(/_/g, " ")}
-      </div>
-      <div className="mt-1 break-all font-mono text-xs">{resultado.clave_acceso}</div>
+      <div className="break-all font-mono text-xs">{resultado.clave_acceso}</div>
       {resultado.mensajes.length > 0 && (
         <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
           {resultado.mensajes.map((m, i) => (
@@ -556,7 +618,7 @@ function Resultado({
         </ul>
       )}
       {resultado.error_contable && (
-        <p className="mt-2 rounded border border-amber-300 bg-amber-100 px-2 py-1.5 text-xs text-amber-900">
+        <p className="mt-2 rounded-md border border-amber-300 bg-amber-100 px-2 py-1.5 text-xs text-amber-900">
           La factura está autorizada, pero no se pudo contabilizar sola:{" "}
           {resultado.error_contable} Contabilízala desde Comprobantes.
         </p>
@@ -564,25 +626,17 @@ function Resultado({
       {resultado.asiento_id && (
         <p className="mt-2 text-xs">Contabilizada automáticamente, con su cuenta por cobrar en cartera.</p>
       )}
-      <div className="mt-2 flex gap-3 text-xs">
-        <a className="underline" href={`/api/sri/facturas/${resultado.venta_id}/ride`} target="_blank">
-          Ver RIDE
-        </a>
-        <a className="underline" href={`/api/sri/facturas/${resultado.venta_id}/xml`}>
-          Descargar XML
-        </a>
-      </div>
-    </div>
+    </Aviso>
   );
 }
 
-const COLOR_ESTADO: Record<string, string> = {
-  AUTORIZADA: "bg-emerald-50 text-emerald-800",
-  RECIBIDA: "bg-sky-50 text-sky-800",
-  FIRMADA: "bg-slate-100 text-slate-700",
-  DEVUELTA: "bg-rose-50 text-rose-800",
-  NO_AUTORIZADA: "bg-rose-50 text-rose-800",
-  ANULADA: "bg-slate-100 text-slate-500",
+const TONO_ESTADO: Record<string, Tono> = {
+  AUTORIZADA: "exito",
+  RECIBIDA: "info",
+  FIRMADA: "neutro",
+  DEVUELTA: "peligro",
+  NO_AUTORIZADA: "peligro",
+  ANULADA: "neutro",
 };
 
 function Listado({ facturas, alCambiar }: { facturas: Factura[]; alCambiar: () => Promise<void> }) {
@@ -601,50 +655,58 @@ function Listado({ facturas, alCambiar }: { facturas: Factura[]; alCambiar: () =
 
   if (facturas.length === 0) {
     return (
-      <section className="rounded-lg border border-slate-200 bg-white p-5">
-        <h2 className="font-medium">Facturas emitidas</h2>
-        <p className="mt-2 text-sm text-slate-500">Todavía no has emitido ninguna.</p>
-      </section>
+      <Tarjeta titulo="Facturas emitidas" sinRelleno>
+        <Vacio
+          icono={Receipt}
+          titulo="Todavía no has emitido ninguna"
+          descripcion="Las facturas que emitas aparecerán aquí con su estado en el SRI."
+        />
+      </Tarjeta>
     );
   }
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5">
-      <h2 className="font-medium">Facturas emitidas</h2>
-      {error && <p className="mt-2 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
+    <Tarjeta titulo="Facturas emitidas" descripcion="Las últimas 50, con su estado en el SRI." sinRelleno>
+      {error && (
+        <div className="border-b border-slate-100 px-5 py-3">
+          <Aviso tono="peligro">{error}</Aviso>
+        </div>
+      )}
 
-      <div className="mt-3 overflow-x-auto">
-        <table className="w-full min-w-[760px] text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-              <th className="py-2 pr-3">Fecha</th>
-              <th className="py-2 pr-3">Número</th>
-              <th className="py-2 pr-3">Cliente</th>
-              <th className="py-2 pr-3 text-right">Total</th>
-              <th className="py-2 pr-3">Estado</th>
-              <th className="py-2"></th>
+      <div className={`${tabla.contenedor} max-h-[70vh]`}>
+        <table className={`${tabla.tabla} min-w-[760px]`}>
+          <thead className={tabla.cabecera}>
+            <tr>
+              <th className={tabla.th}>Fecha</th>
+              <th className={tabla.th}>Número</th>
+              <th className={tabla.th}>Cliente</th>
+              <th className={`${tabla.th} text-right`}>Total</th>
+              <th className={tabla.th}>Estado</th>
+              <th className={tabla.th}>
+                <span className="sr-only">Acciones</span>
+              </th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className={tabla.cuerpo}>
             {facturas.map((f) => (
-              <tr key={f.id} className="border-b border-slate-100 align-top">
-                <td className="py-2 pr-3 whitespace-nowrap">
+              <tr key={f.id} className={`${tabla.fila} align-top`}>
+                <td className={`${tabla.td} whitespace-nowrap text-slate-500`}>
                   {new Date(`${f.fecha}T12:00:00`).toLocaleDateString("es-EC")}
                 </td>
-                <td className="py-2 pr-3 whitespace-nowrap font-medium">{f.numero}</td>
-                <td className="py-2 pr-3">
-                  {f.razon_social_cliente}
-                  <div className="text-xs text-slate-500">{f.id_cliente}</div>
+                <td className={`${tabla.td} whitespace-nowrap font-medium tabular-nums text-slate-900`}>
+                  {f.numero}
                 </td>
-                <td className="py-2 pr-3 text-right tabular-nums">{dinero(Number(f.total))}</td>
-                <td className="py-2 pr-3">
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                      COLOR_ESTADO[f.sri_estado] ?? "bg-slate-100 text-slate-700"
-                    }`}
-                  >
+                <td className={tabla.td}>
+                  <div className="text-slate-900">{f.razon_social_cliente}</div>
+                  <div className="text-xs tabular-nums text-slate-400">{f.id_cliente}</div>
+                </td>
+                <td className={`${tabla.td} ${tabla.numero} font-medium text-slate-900`}>
+                  {dinero(Number(f.total))}
+                </td>
+                <td className={tabla.td}>
+                  <Insignia tono={TONO_ESTADO[f.sri_estado] ?? "neutro"}>
                     {f.sri_estado.toLowerCase().replace(/_/g, " ")}
-                  </span>
+                  </Insignia>
                   {f.sri_mensajes?.length > 0 && (
                     <div className="mt-1 max-w-xs text-xs text-rose-700">
                       {f.sri_mensajes.map((m, i) => (
@@ -653,28 +715,35 @@ function Listado({ facturas, alCambiar }: { facturas: Factura[]; alCambiar: () =
                     </div>
                   )}
                 </td>
-                <td className="py-2 text-right whitespace-nowrap">
-                  <a className="text-xs underline" href={`/api/sri/facturas/${f.id}/ride`} target="_blank">
-                    RIDE
-                  </a>
-                  <a className="ml-3 text-xs underline" href={`/api/sri/facturas/${f.id}/xml`}>
-                    XML
-                  </a>
-                  {f.sri_estado !== "AUTORIZADA" && (
-                    <button
-                      onClick={() => reintentar(f.id)}
-                      disabled={ocupado === f.id}
-                      className="ml-3 text-xs text-emerald-700 underline disabled:opacity-50"
+                <td className={`${tabla.td} whitespace-nowrap text-right`}>
+                  <div className="flex justify-end gap-1">
+                    <a
+                      className={boton("fantasma", "sm")}
+                      href={`/api/sri/facturas/${f.id}/ride`}
+                      target="_blank"
                     >
-                      {ocupado === f.id ? "Consultando…" : "Reintentar"}
-                    </button>
-                  )}
+                      RIDE
+                    </a>
+                    <a className={boton("fantasma", "sm")} href={`/api/sri/facturas/${f.id}/xml`}>
+                      XML
+                    </a>
+                    {f.sri_estado !== "AUTORIZADA" && (
+                      <button
+                        onClick={() => reintentar(f.id)}
+                        disabled={ocupado === f.id}
+                        className={boton("secundario", "sm")}
+                      >
+                        <RotateCw size={14} className={ocupado === f.id ? "animate-spin" : ""} />
+                        {ocupado === f.id ? "Consultando…" : "Reintentar"}
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-    </section>
+    </Tarjeta>
   );
 }

@@ -5,6 +5,27 @@ import { useRouter } from "next/navigation";
 import { useCarga } from "@/lib/carga";
 import FacturacionElectronica from "./facturacion-electronica";
 import MiCuenta from "./mi-cuenta";
+import { Building2, Plus, X } from "lucide-react";
+import {
+  Aviso,
+  Encabezado,
+  Esqueleto,
+  Insignia,
+  Tarjeta,
+  boton,
+  campo,
+  etiqueta,
+} from "@/components/ui";
+
+/** Botón de cabecera que abre o cierra el formulario de alta. */
+function BotonAlta({ abierto, alternar }: { abierto: boolean; alternar: () => void }) {
+  return (
+    <button onClick={alternar} className={boton(abierto ? "fantasma" : "secundario", "sm")}>
+      {abierto ? <X size={14} /> : <Plus size={14} />}
+      {abierto ? "Cancelar" : "Añadir"}
+    </button>
+  );
+}
 
 interface Entidad {
   id: string;
@@ -54,26 +75,37 @@ export default function Ajustes() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Ajustes</h1>
+      <Encabezado
+        titulo="Ajustes"
+        descripcion="Tu cuenta de acceso, la entidad contable, sus cuentas financieras y la facturación electrónica."
+      />
 
       {/* Va primero y fuera de la carga de entidades: cambiar la propia clave
           no puede depender de tener una contabilidad ya configurada. */}
-      <div id="cuenta" className="scroll-mt-4">
+      <div id="cuenta" className="scroll-mt-20">
         <MiCuenta />
       </div>
 
       {cargando ? (
-        <p className="text-sm text-slate-500">Cargando…</p>
+        <div className="space-y-6" aria-busy="true" aria-label="Cargando">
+          {[0, 1].map((i) => (
+            <div key={i} className="space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <Esqueleto className="h-4 w-40" />
+              <Esqueleto className="h-3 w-72 max-w-full" />
+              <Esqueleto className="h-10 w-full" />
+            </div>
+          ))}
+        </div>
       ) : (
         <>
-          <div id="general" className="scroll-mt-4 space-y-6">
+          <div id="general" className="scroll-mt-20 space-y-6">
             <SeccionEntidades entidades={entidades} alCrear={recargar} />
             {entidades.length > 0 && (
               <SeccionCuentas cuentas={cuentas} alCrear={recargar} />
             )}
           </div>
           {entidades.length > 0 && (
-            <div id="facturacion" className="scroll-mt-4">
+            <div id="facturacion" className="scroll-mt-20">
               <FacturacionElectronica />
             </div>
           )}
@@ -125,26 +157,28 @@ function SeccionEntidades({
   }
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5">
-      <div className="flex items-center justify-between">
-        <h2 className="font-medium">Entidad contable</h2>
-        <button
-          onClick={() => setAbierto(!abierto)}
-          className="text-sm text-emerald-700 underline"
-        >
-          {abierto ? "Cancelar" : "Añadir"}
-        </button>
-      </div>
-
+    <Tarjeta
+      titulo="Entidad contable"
+      descripcion="La persona o empresa cuya contabilidad se lleva: RUC, régimen tributario y periodicidad del IVA."
+      acciones={<BotonAlta abierto={abierto} alternar={() => setAbierto(!abierto)} />}
+    >
       {entidades.length > 0 && (
-        <ul className="mt-3 divide-y divide-slate-100 text-sm">
+        <ul className="-my-2 divide-y divide-slate-100 text-sm">
           {entidades.map((e) => (
-            <li key={e.id} className="py-2">
-              <div className="font-medium">{e.razon_social}</div>
-              <div className="text-xs text-slate-500">
-                RUC {e.ruc} · {e.regimen.replace(/_/g, " ").toLowerCase()} · IVA{" "}
-                {e.periodicidad_iva.toLowerCase()}
-                {e.obligado_contabilidad && " · obligado a llevar contabilidad"}
+            <li key={e.id} className="flex items-start gap-3 py-3">
+              <span className="shrink-0 rounded-lg bg-emerald-50 p-2 text-emerald-700">
+                <Building2 size={18} />
+              </span>
+              <div className="min-w-0">
+                <div className="font-medium text-slate-900">{e.razon_social}</div>
+                <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+                  <span className="tabular-nums">RUC {e.ruc}</span>
+                  <Insignia>{e.regimen.replace(/_/g, " ").toLowerCase()}</Insignia>
+                  <Insignia>IVA {e.periodicidad_iva.toLowerCase()}</Insignia>
+                  {e.obligado_contabilidad && (
+                    <Insignia tono="info">obligado a llevar contabilidad</Insignia>
+                  )}
+                </div>
               </div>
             </li>
           ))}
@@ -152,58 +186,67 @@ function SeccionEntidades({
       )}
 
       {abierto && (
-        <form onSubmit={crear} className="mt-4 grid gap-3 sm:grid-cols-2">
+        <form
+          onSubmit={crear}
+          className={`grid gap-4 sm:grid-cols-2 ${
+            entidades.length > 0 ? "mt-5 border-t border-slate-100 pt-5" : ""
+          }`}
+        >
           <Campo etiqueta="RUC o cédula" nombre="ruc" requerido pattern="\d{10,13}" />
           <Campo etiqueta="Razón social" nombre="razon_social" requerido />
 
-          <label className="block text-sm">
-            <span className="text-slate-700">Régimen</span>
-            <select
-              name="regimen"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
+          <div>
+            <label htmlFor="regimen" className={etiqueta}>
+              Régimen
+            </label>
+            <select id="regimen" name="regimen" className={campo}>
               <option value="GENERAL">General</option>
               <option value="RIMPE_EMPRENDEDOR">RIMPE emprendedor</option>
               <option value="RIMPE_NEGOCIO_POPULAR">RIMPE negocio popular</option>
             </select>
-          </label>
+          </div>
 
-          <label className="block text-sm">
-            <span className="text-slate-700">Periodicidad del IVA</span>
-            <select
-              name="periodicidad_iva"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
+          <div>
+            <label htmlFor="periodicidad_iva" className={etiqueta}>
+              Periodicidad del IVA
+            </label>
+            <select id="periodicidad_iva" name="periodicidad_iva" className={campo}>
               <option value="MENSUAL">Mensual</option>
               <option value="SEMESTRAL">Semestral</option>
             </select>
-          </label>
+          </div>
 
-          <label className="flex items-center gap-2 text-sm sm:col-span-2">
-            <input type="checkbox" name="obligado_contabilidad" />
+          <label className="flex items-center gap-2 text-sm text-slate-700 sm:col-span-2">
+            <input
+              type="checkbox"
+              name="obligado_contabilidad"
+              className="h-4 w-4 rounded border-slate-300 accent-emerald-600"
+            />
             <span>Obligado a llevar contabilidad</span>
           </label>
 
           {error && (
-            <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-800 sm:col-span-2">
-              {error}
-            </p>
+            <div className="sm:col-span-2">
+              <Aviso tono="peligro">{error}</Aviso>
+            </div>
           )}
 
-          <button
-            type="submit"
-            disabled={ocupado}
-            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 sm:col-span-2"
-          >
-            {ocupado ? "Creando…" : "Crear entidad"}
-          </button>
-          <p className="text-xs text-slate-500 sm:col-span-2">
-            Al crearla se genera automáticamente su plan de cuentas y el
-            catálogo de categorías de gasto.
-          </p>
+          <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
+            <button type="submit" disabled={ocupado} className={boton("primario")}>
+              {ocupado ? "Creando…" : "Crear entidad"}
+            </button>
+            <p className="text-xs text-slate-500">
+              Al crearla se genera automáticamente su plan de cuentas y el
+              catálogo de categorías de gasto.
+            </p>
+          </div>
         </form>
       )}
-    </section>
+
+      {entidades.length === 0 && !abierto && (
+        <p className="text-sm text-slate-500">Aún no hay ninguna entidad.</p>
+      )}
+    </Tarjeta>
   );
 }
 
@@ -246,29 +289,27 @@ function SeccionCuentas({
   }
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5">
-      <div className="flex items-center justify-between">
-        <h2 className="font-medium">Cuentas financieras</h2>
-        <button
-          onClick={() => setAbierto(!abierto)}
-          className="text-sm text-emerald-700 underline"
-        >
-          {abierto ? "Cancelar" : "Añadir"}
-        </button>
-      </div>
-      <p className="mt-1 text-sm text-slate-500">
-        Bancos, tarjetas de crédito y cooperativas. Cada estado de cuenta que
-        cargues se asocia a una de ellas.
-      </p>
-
+    <Tarjeta
+      titulo="Cuentas financieras"
+      descripcion="Bancos, tarjetas de crédito y cooperativas. Cada estado de cuenta que cargues se asocia a una de ellas."
+      acciones={<BotonAlta abierto={abierto} alternar={() => setAbierto(!abierto)} />}
+      sinRelleno={cuentas.length > 0 && !abierto}
+    >
       {cuentas.length > 0 && (
-        <ul className="mt-3 divide-y divide-slate-100 text-sm">
+        <ul
+          className={`divide-y divide-slate-100 text-sm ${
+            abierto ? "-mx-5 -mt-5 border-b border-slate-100" : ""
+          }`}
+        >
           {cuentas.map((c) => (
-            <li key={c.id} className="flex justify-between py-2">
-              <span className="font-medium">{c.nombre}</span>
-              <span className="text-xs text-slate-500">
-                {c.tipo.replace(/_/g, " ").toLowerCase()}
-                {c.institucion && ` · ${c.institucion}`}
+            <li
+              key={c.id}
+              className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 transition-colors hover:bg-slate-50/80"
+            >
+              <span className="font-medium text-slate-900">{c.nombre}</span>
+              <span className="flex items-center gap-2 text-xs text-slate-500">
+                {c.institucion && <span>{c.institucion}</span>}
+                <Insignia>{c.tipo.replace(/_/g, " ").toLowerCase()}</Insignia>
               </span>
             </li>
           ))}
@@ -276,45 +317,49 @@ function SeccionCuentas({
       )}
 
       {abierto && (
-        <form onSubmit={crear} className="mt-4 grid gap-3 sm:grid-cols-2">
+        <form
+          onSubmit={crear}
+          className={`grid gap-4 sm:grid-cols-2 ${cuentas.length > 0 ? "mt-5" : ""}`}
+        >
           <Campo etiqueta="Nombre" nombre="nombre" requerido />
-          <label className="block text-sm">
-            <span className="text-slate-700">Tipo</span>
-            <select
-              name="tipo"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
+          <div>
+            <label htmlFor="tipo-cuenta" className={etiqueta}>
+              Tipo
+            </label>
+            <select id="tipo-cuenta" name="tipo" className={campo}>
               <option value="BANCO">Banco</option>
               <option value="TARJETA_CREDITO">Tarjeta de crédito</option>
               <option value="COOPERATIVA">Cooperativa</option>
               <option value="CAJA">Caja</option>
               <option value="INVERSION">Inversión</option>
             </select>
-          </label>
+          </div>
           <Campo etiqueta="Institución" nombre="institucion" />
           <Campo etiqueta="Número (últimos dígitos)" nombre="numero" />
 
           {error && (
-            <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-800 sm:col-span-2">
-              {error}
-            </p>
+            <div className="sm:col-span-2">
+              <Aviso tono="peligro">{error}</Aviso>
+            </div>
           )}
 
-          <button
-            type="submit"
-            disabled={ocupado}
-            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 sm:col-span-2"
-          >
-            {ocupado ? "Creando…" : "Crear cuenta"}
-          </button>
+          <div className="sm:col-span-2">
+            <button type="submit" disabled={ocupado} className={boton("primario")}>
+              {ocupado ? "Creando…" : "Crear cuenta"}
+            </button>
+          </div>
         </form>
       )}
-    </section>
+
+      {cuentas.length === 0 && !abierto && (
+        <p className="text-sm text-slate-500">Aún no hay cuentas financieras.</p>
+      )}
+    </Tarjeta>
   );
 }
 
 function Campo({
-  etiqueta,
+  etiqueta: texto,
   nombre,
   requerido,
   pattern,
@@ -325,14 +370,17 @@ function Campo({
   pattern?: string;
 }) {
   return (
-    <label className="block text-sm">
-      <span className="text-slate-700">{etiqueta}</span>
+    <div>
+      <label htmlFor={nombre} className={etiqueta}>
+        {texto}
+      </label>
       <input
+        id={nombre}
         name={nombre}
         required={requerido}
         pattern={pattern}
-        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+        className={campo}
       />
-    </label>
+    </div>
   );
 }

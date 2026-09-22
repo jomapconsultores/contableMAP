@@ -1,8 +1,28 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { usd } from "@/lib/formato";
+import {
+  ChevronDown,
+  ChevronRight,
+  Landmark,
+  PiggyBank,
+  Scale,
+  TrendingDown,
+  TrendingUp,
+  Wallet,
+} from "lucide-react";
+import { usd, fecha } from "@/lib/formato";
 import { useCarga } from "@/lib/carga";
+import {
+  Aviso,
+  Encabezado,
+  Esqueleto,
+  Indicador,
+  Insignia,
+  Tarjeta,
+  campo,
+  etiqueta,
+} from "@/components/ui";
 
 interface Detalle {
   codigo: string;
@@ -120,46 +140,126 @@ export default function Informes() {
   const alternar = (codigo: string, abierto: boolean) =>
     setAbiertos((a) => ({ ...a, [codigo]: !abierto }));
 
+  const periodo = `Del ${fecha(desde)} al ${fecha(hasta)}`;
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Estados financieros</h1>
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="text-sm">
-            <span className="block text-xs text-slate-500">Desde</span>
-            <input
-              type="date"
-              value={desde}
-              onChange={(e) => {
-                setDesde(e.target.value);
-                setAnio(Number(e.target.value.slice(0, 4)));
-                setCargando(true);
-              }}
-              className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-            />
-          </label>
-          <label className="text-sm">
-            <span className="block text-xs text-slate-500">Hasta</span>
-            <input
-              type="date"
-              value={hasta}
-              onChange={(e) => {
-                setHasta(e.target.value);
-                setCargando(true);
-              }}
-              className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-            />
-          </label>
-        </div>
-      </div>
+      <Encabezado
+        antetitulo="Informes"
+        titulo="Estados financieros"
+        descripcion="Estado de resultados del período y balance general a la fecha de corte. Pulsa una cuenta para ver su desglose."
+        acciones={
+          <div className="flex flex-wrap items-end gap-3">
+            <label>
+              <span className={etiqueta}>Desde</span>
+              <input
+                type="date"
+                value={desde}
+                onChange={(e) => {
+                  setDesde(e.target.value);
+                  setAnio(Number(e.target.value.slice(0, 4)));
+                  setCargando(true);
+                }}
+                className={`${campo} w-auto`}
+              />
+            </label>
+            <label>
+              <span className={etiqueta}>Hasta</span>
+              <input
+                type="date"
+                value={hasta}
+                onChange={(e) => {
+                  setHasta(e.target.value);
+                  setCargando(true);
+                }}
+                className={`${campo} w-auto`}
+              />
+            </label>
+          </div>
+        }
+      />
 
-      {error && <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
-      {cargando && <p className="text-sm text-slate-500">Calculando…</p>}
+      {error && (
+        <Aviso tono="peligro" titulo="No se pudieron calcular los estados">
+          {error}
+        </Aviso>
+      )}
+
+      {/* Primera carga: aún no hay nada que pintar. */}
+      {cargando && !pyg && !balance && (
+        <div className="space-y-6">
+          <div className="grid gap-4 sm:grid-cols-3">
+            {Array.from({ length: 6 }, (_, i) => (
+              <Esqueleto key={i} className="h-[88px] w-full rounded-xl" />
+            ))}
+          </div>
+          <Esqueleto className="h-80 w-full rounded-xl" />
+        </div>
+      )}
+
+      {(pyg || balance) && (
+        <section className="grid gap-4 sm:grid-cols-3">
+          {pyg && (
+            <>
+              <Indicador
+                etiqueta="Ingresos"
+                valor={usd(pyg.ingresos)}
+                tono="exito"
+                icono={TrendingUp}
+                href="#resultados"
+              />
+              <Indicador
+                etiqueta="Gastos"
+                valor={usd(pyg.total_gastos)}
+                tono="peligro"
+                icono={TrendingDown}
+                href="#resultados"
+              />
+              <Indicador
+                etiqueta="Resultado"
+                valor={usd(pyg.resultado_ejercicio)}
+                tono={pyg.resultado_ejercicio >= 0 ? "exito" : "peligro"}
+                icono={Scale}
+                href="#resultados"
+              />
+            </>
+          )}
+          {balance && (
+            <>
+              <Indicador
+                etiqueta="Activo"
+                valor={usd(balance.total_activo)}
+                icono={Wallet}
+                href="#balance"
+              />
+              <Indicador
+                etiqueta="Pasivo"
+                valor={usd(balance.total_pasivo)}
+                icono={Landmark}
+                href="#balance"
+              />
+              <Indicador
+                etiqueta="Patrimonio"
+                valor={usd(balance.total_patrimonio)}
+                tono={balance.total_patrimonio >= 0 ? "neutro" : "peligro"}
+                icono={PiggyBank}
+                href="#balance"
+              />
+            </>
+          )}
+        </section>
+      )}
 
       {pyg && (
-        <section id="resultados" className="scroll-mt-4 rounded-lg border border-slate-200 bg-white p-5">
-          <h2 className="mb-3 font-medium">Estado de resultados</h2>
-          <dl className="divide-y divide-slate-100 text-sm">
+        <Tarjeta
+          id="resultados"
+          titulo="Estado de resultados"
+          descripcion={periodo}
+          acciones={cargando ? <Insignia tono="info">Calculando…</Insignia> : undefined}
+          sinRelleno
+        >
+          <Cabecera izquierda="Concepto" />
+          <dl className="px-5 pb-2 text-sm">
             <Fila
               k="Ingresos"
               v={pyg.ingresos}
@@ -204,19 +304,34 @@ export default function Informes() {
               abiertos={abiertos}
               alternar={alternar}
             />
-            <Fila k="Resultado del ejercicio" v={pyg.resultado_ejercicio} destacado />
+            <Fila k="Resultado del ejercicio" v={pyg.resultado_ejercicio} total />
           </dl>
-        </section>
+        </Tarjeta>
       )}
 
       {balance && (
-        <section id="balance" className="scroll-mt-4 rounded-lg border border-slate-200 bg-white p-5">
-          <h2 className="mb-3 font-medium">Balance general</h2>
+        <Tarjeta
+          id="balance"
+          titulo="Balance general"
+          descripcion={`Al ${fecha(balance.fecha_corte)}`}
+          acciones={
+            <>
+              {cargando && <Insignia tono="info">Calculando…</Insignia>}
+              {Math.abs(Number(balance.descuadre)) > 0.01 ? (
+                <Insignia tono="aviso">Descuadre {usd(balance.descuadre)}</Insignia>
+              ) : (
+                <Insignia tono="exito">Cuadrado</Insignia>
+              )}
+            </>
+          }
+          sinRelleno
+        >
           {Math.abs(Number(balance.descuadre)) > 0.01 && (
-            <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              El balance no cuadra por {usd(balance.descuadre)}. Suele deberse a
-              asientos incompletos o a saldos iniciales sin registrar.
-            </p>
+            <div className="px-5 pt-4">
+              <Aviso tono="aviso" titulo={`El balance no cuadra por ${usd(balance.descuadre)}`}>
+                Suele deberse a asientos incompletos o a saldos iniciales sin registrar.
+              </Aviso>
+            </div>
           )}
           {/*
             Las dos columnas cierran a la misma altura: el total de cada lado va
@@ -224,57 +339,73 @@ export default function Informes() {
             patrimonio» quedan enfrentados por mucho que se desplieguen las
             cuentas de un lado y no las del otro. Es como se lee un balance.
           */}
-          <div className="grid items-stretch gap-6 sm:grid-cols-2">
-            <dl className="flex flex-col divide-y divide-slate-100 text-sm">
-              <Fila
-                k="Activo corriente"
-                v={balance.activo_corriente}
-                cuentas={subarbol(balance.detalle, renglon("ACTIVO", ["CORRIENTE"]))}
-                abiertos={abiertos}
-                alternar={alternar}
-              />
-              <Fila
-                k="Activo no corriente"
-                v={balance.activo_no_corriente}
-                cuentas={subarbol(balance.detalle, renglon("ACTIVO", ["NO_CORRIENTE"]))}
-                abiertos={abiertos}
-                alternar={alternar}
-              />
-              <div className="mt-auto border-t border-slate-300 pt-1">
-                <Fila k="Total activo" v={balance.total_activo} destacado />
-              </div>
-            </dl>
-            <dl className="flex flex-col divide-y divide-slate-100 text-sm">
-              <Fila
-                k="Pasivo corriente"
-                v={balance.pasivo_corriente}
-                cuentas={subarbol(balance.detalle, renglon("PASIVO", ["CORRIENTE"]))}
-                abiertos={abiertos}
-                alternar={alternar}
-              />
-              <Fila
-                k="Pasivo no corriente"
-                v={balance.pasivo_no_corriente}
-                cuentas={subarbol(balance.detalle, renglon("PASIVO", ["NO_CORRIENTE"]))}
-                abiertos={abiertos}
-                alternar={alternar}
-              />
-              <Fila k="Total pasivo" v={balance.total_pasivo} />
-              <Fila
-                k="Patrimonio"
-                v={balance.patrimonio_inicial}
-                cuentas={subarbol(balance.detalle, renglon("PATRIMONIO"))}
-                abiertos={abiertos}
-                alternar={alternar}
-              />
-              <Fila k="Resultado del ejercicio" v={balance.resultado_ejercicio} />
-              <div className="mt-auto border-t border-slate-300 pt-1">
-                <Fila k="Pasivo + patrimonio" v={balance.pasivo_mas_patrimonio} destacado />
-              </div>
-            </dl>
+          <div className="grid items-stretch md:grid-cols-2 md:divide-x md:divide-slate-100">
+            <div className="flex flex-col">
+              <Cabecera izquierda="Activo" />
+              <dl className="flex flex-1 flex-col px-5 pb-2 text-sm">
+                <Fila
+                  k="Activo corriente"
+                  v={balance.activo_corriente}
+                  cuentas={subarbol(balance.detalle, renglon("ACTIVO", ["CORRIENTE"]))}
+                  abiertos={abiertos}
+                  alternar={alternar}
+                />
+                <Fila
+                  k="Activo no corriente"
+                  v={balance.activo_no_corriente}
+                  cuentas={subarbol(balance.detalle, renglon("ACTIVO", ["NO_CORRIENTE"]))}
+                  abiertos={abiertos}
+                  alternar={alternar}
+                />
+                <div className="mt-auto">
+                  <Fila k="Total activo" v={balance.total_activo} total />
+                </div>
+              </dl>
+            </div>
+            <div className="flex flex-col border-t border-slate-100 md:border-t-0">
+              <Cabecera izquierda="Pasivo y patrimonio" />
+              <dl className="flex flex-1 flex-col px-5 pb-2 text-sm">
+                <Fila
+                  k="Pasivo corriente"
+                  v={balance.pasivo_corriente}
+                  cuentas={subarbol(balance.detalle, renglon("PASIVO", ["CORRIENTE"]))}
+                  abiertos={abiertos}
+                  alternar={alternar}
+                />
+                <Fila
+                  k="Pasivo no corriente"
+                  v={balance.pasivo_no_corriente}
+                  cuentas={subarbol(balance.detalle, renglon("PASIVO", ["NO_CORRIENTE"]))}
+                  abiertos={abiertos}
+                  alternar={alternar}
+                />
+                <Fila k="Total pasivo" v={balance.total_pasivo} destacado />
+                <Fila
+                  k="Patrimonio"
+                  v={balance.patrimonio_inicial}
+                  cuentas={subarbol(balance.detalle, renglon("PATRIMONIO"))}
+                  abiertos={abiertos}
+                  alternar={alternar}
+                />
+                <Fila k="Resultado del ejercicio" v={balance.resultado_ejercicio} />
+                <div className="mt-auto">
+                  <Fila k="Pasivo + patrimonio" v={balance.pasivo_mas_patrimonio} total />
+                </div>
+              </dl>
+            </div>
           </div>
-        </section>
+        </Tarjeta>
       )}
+    </div>
+  );
+}
+
+/** Rótulo de columna del informe: el concepto a la izquierda y «USD» sobre las cifras. */
+function Cabecera({ izquierda }: { izquierda: string }) {
+  return (
+    <div className="flex justify-between border-b border-slate-200 bg-slate-50/60 px-5 py-2 text-[11px] font-medium uppercase tracking-wider text-slate-500">
+      <span>{izquierda}</span>
+      <span>USD</span>
     </div>
   );
 }
@@ -284,11 +415,15 @@ export default function Informes() {
  * componen, cada una en su rama. Las de los primeros niveles vienen abiertas;
  * las que agrupan cuentas concretas —una por banco, una por libreta, una por
  * tarjeta— empiezan plegadas y se abren al pulsarlas.
+ *
+ * `destacado` marca un subtotal (línea fina encima, seminegrita) y `total` el
+ * cierre del estado (doble línea, negrita), como en un informe impreso.
  */
 function Fila({
   k,
   v,
   destacado,
+  total,
   cuentas,
   abiertos,
   alternar,
@@ -296,18 +431,24 @@ function Fila({
   k: string;
   v: number;
   destacado?: boolean;
+  total?: boolean;
   cuentas?: Subarbol;
   abiertos?: Record<string, boolean>;
   alternar?: (codigo: string, abierto: boolean) => void;
 }) {
+  const estilo = total
+    ? "mt-2 border-t-2 border-double border-slate-400 pt-1 font-bold text-slate-900"
+    : destacado
+      ? "mt-1 border-t border-slate-300 font-semibold text-slate-900"
+      : "border-t border-slate-100 font-medium text-slate-800 first:border-t-0";
   return (
-    <div className={destacado ? "font-semibold" : undefined}>
-      <div className="flex justify-between py-1.5">
+    <div className={estilo}>
+      <div className={`flex items-baseline justify-between gap-4 ${total ? "py-2.5 text-base" : "py-2"}`}>
         <dt>{k}</dt>
-        <dd className={`tabular-nums ${v < 0 ? "text-rose-700" : ""}`}>{usd(v)}</dd>
+        <dd className={`whitespace-nowrap tabular-nums ${v < 0 ? "text-rose-700" : ""}`}>{usd(v)}</dd>
       </div>
       {cuentas && alternar && abiertos && cuentas.raices.length > 0 && (
-        <div className="mb-1.5 font-normal">
+        <div className="mb-2 font-normal">
           {cuentas.raices.map((d) => (
             <Rama
               key={d.codigo}
@@ -339,31 +480,38 @@ function Rama({
 }) {
   const hijos = hijosDe.get(nodo.codigo) ?? [];
   const abierto = abiertos[nodo.codigo] ?? (nodo.nivel ?? 1) <= 3;
+  const saldo = Number(nodo.saldo);
+  const Chevron = abierto ? ChevronDown : ChevronRight;
 
   return (
     <>
       <div
-        className="flex justify-between py-0.5 text-slate-600"
-        style={{ paddingLeft: 12 + sangria * 14 }}
+        className={`-mx-2 flex items-baseline justify-between gap-4 rounded px-2 py-1 text-[13px] hover:bg-slate-50 ${
+          hijos.length > 0 ? "text-slate-700" : "text-slate-500"
+        }`}
+        style={{ paddingLeft: 8 + sangria * 18 }}
       >
-        <span className="flex min-w-0 items-baseline gap-1.5">
-          <span className="font-mono text-xs text-slate-400">{nodo.codigo}</span>
-          {hijos.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => alternar(nodo.codigo, abierto)}
-              className="truncate text-left hover:underline"
-              aria-expanded={abierto}
-            >
-              <span className="mr-1 inline-block w-3 text-slate-400">{abierto ? "▾" : "▸"}</span>
-              {nodo.cuenta}
-              <span className="ml-1 text-xs text-slate-400">({hijos.length})</span>
-            </button>
-          ) : (
-            <span className="ml-4 truncate">{nodo.cuenta}</span>
-          )}
+        {hijos.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => alternar(nodo.codigo, abierto)}
+            className="flex min-w-0 items-baseline gap-1.5 text-left hover:text-slate-900"
+            aria-expanded={abierto}
+          >
+            <Chevron size={14} className="shrink-0 self-center text-slate-400" />
+            <span className="shrink-0 font-mono text-xs tabular-nums text-slate-400">{nodo.codigo}</span>
+            <span className="truncate">{nodo.cuenta}</span>
+            <span className="shrink-0 text-xs text-slate-400">({hijos.length})</span>
+          </button>
+        ) : (
+          <span className="flex min-w-0 items-baseline gap-1.5 pl-5">
+            <span className="shrink-0 font-mono text-xs tabular-nums text-slate-400">{nodo.codigo}</span>
+            <span className="truncate">{nodo.cuenta}</span>
+          </span>
+        )}
+        <span className={`whitespace-nowrap tabular-nums ${saldo < 0 ? "text-rose-700" : ""}`}>
+          {usd(saldo)}
         </span>
-        <span className="tabular-nums">{usd(Number(nodo.saldo))}</span>
       </div>
       {abierto &&
         hijos.map((h) => (

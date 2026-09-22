@@ -8,6 +8,7 @@ import {
   ChevronDown,
   FileSignature,
   LayoutDashboard,
+  LogOut,
   Menu,
   Percent,
   Receipt,
@@ -152,8 +153,9 @@ export default function Navegacion() {
         >
           <Menu size={20} />
         </button>
-        <Link href="/" className="text-lg font-semibold tracking-tight">
-          Contable<span className="text-emerald-600">MAP</span>
+        <Link href="/" className="flex items-center gap-2 text-lg font-semibold tracking-tight">
+          <span className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-600 text-xs font-bold text-white">M</span>
+          <span>Contable<span className="text-emerald-600">MAP</span></span>
         </Link>
       </div>
 
@@ -170,9 +172,10 @@ export default function Navegacion() {
           abierto ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4">
-          <Link href="/" onClick={cerrar} className="text-lg font-semibold tracking-tight">
-            Contable<span className="text-emerald-600">MAP</span>
+        <div className="flex h-14 items-center justify-between border-b border-slate-200 px-4">
+          <Link href="/" onClick={cerrar} className="flex items-center gap-2 text-lg font-semibold tracking-tight">
+            <span className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-600 text-xs font-bold text-white">M</span>
+            <span>Contable<span className="text-emerald-600">MAP</span></span>
           </Link>
           <button
             onClick={cerrar}
@@ -211,10 +214,22 @@ export default function Navegacion() {
           ))}
         </nav>
 
-        <p className="border-t border-slate-200 px-4 py-3 text-[11px] leading-relaxed text-slate-400">
-          Los cálculos tributarios son una ayuda de gestión. Contrástalos con la
-          normativa vigente del SRI.
-        </p>
+        <div className="border-t border-slate-200 px-3 py-3">
+          {/* En escritorio se sale desde la barra superior; en móvil no hay
+              barra superior, así que la salida vive aquí. */}
+          <form action="/auth/salir" method="post" className="lg:hidden">
+            <button
+              type="submit"
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
+            >
+              <LogOut size={17} className="text-slate-400" /> Cerrar sesión
+            </button>
+          </form>
+          <p className="px-3 pt-1 text-[11px] leading-relaxed text-slate-400">
+            Los cálculos tributarios son una ayuda de gestión. Contrástalos con la
+            normativa vigente del SRI.
+          </p>
+        </div>
       </aside>
     </>
   );
@@ -241,7 +256,7 @@ function Entradilla({
         <Link
           href={entrada.href}
           onClick={alNavegar}
-          className={`flex flex-1 items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors ${
+          className={`flex flex-1 items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
             activa
               ? "bg-emerald-50 font-medium text-emerald-800"
               : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"

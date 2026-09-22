@@ -7,7 +7,18 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { CloudUpload, FileText, LoaderCircle, Mic, Sparkles, Square, X } from "lucide-react";
 import { usd } from "@/lib/formato";
+import {
+  Aviso,
+  Encabezado,
+  Insignia,
+  Tarjeta,
+  boton,
+  campo,
+  etiqueta,
+  type Tono,
+} from "@/components/ui";
 
 /* -------------------------------------------------------------------------
    Reconocimiento de voz del navegador. Solo se usa para transcribir; la
@@ -71,14 +82,11 @@ interface Propuesta {
 
 export default function Ingesta() {
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold">Ingresar datos</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Dicta un movimiento o carga un documento. En ambos casos se te muestra
-          lo que se entendió antes de registrar nada.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <Encabezado
+        titulo="Ingresar datos"
+        descripcion="Dicta un movimiento o carga un documento. En ambos casos se te muestra lo que se entendió antes de registrar nada."
+      />
       <PorVoz />
       <PorDocumento />
     </div>
@@ -169,115 +177,140 @@ function PorVoz() {
     }
   }
 
+  const textoValido = texto.trim().length >= 3;
+
   return (
-    <section id="voz" className="scroll-mt-4 rounded-lg border border-slate-200 bg-white p-5">
-      <h2 className="font-medium">Por voz o texto</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        Por ejemplo: «pagué ciento veinte dólares de gasolina en Primax con la
-        tarjeta del Pichincha».
-      </p>
-
-      <textarea
-        value={texto}
-        onChange={(e) => setTexto(e.target.value)}
-        rows={3}
-        placeholder="Dicta o escribe aquí…"
-        className="mt-3 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500"
-      />
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {soportado ? (
-          <button
-            onClick={alternarEscucha}
-            className={`rounded-md px-4 py-2 text-sm font-medium ${
-              escuchando
-                ? "bg-rose-600 text-white hover:bg-rose-700"
-                : "border border-slate-300 bg-white hover:bg-slate-100"
+    <Tarjeta
+      id="voz"
+      titulo="Por voz o texto"
+      descripcion="Por ejemplo: «pagué ciento veinte dólares de gasolina en Primax con la tarjeta del Pichincha»."
+    >
+      <div className="space-y-4">
+        <div>
+          <label htmlFor="texto-voz" className={etiqueta}>
+            Movimiento
+          </label>
+          <textarea
+            id="texto-voz"
+            value={texto}
+            onChange={(e) => setTexto(e.target.value)}
+            rows={3}
+            placeholder="Dicta o escribe aquí…"
+            className={`${campo} resize-y ${
+              escuchando ? "border-rose-400 ring-2 ring-rose-500/20" : ""
             }`}
-          >
-            {escuchando ? "■ Detener" : "● Dictar"}
-          </button>
-        ) : (
-          <span className="text-xs text-slate-500">
-            Este navegador no reconoce voz; escribe el texto.
-          </span>
-        )}
-
-        <button
-          onClick={() => enviar(false)}
-          disabled={ocupado || texto.trim().length < 3}
-          className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-100 disabled:opacity-50"
-        >
-          Interpretar
-        </button>
-
-        <button
-          onClick={() => enviar(true)}
-          disabled={ocupado || texto.trim().length < 3}
-          className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-        >
-          Registrar y contabilizar
-        </button>
-
-        {texto && (
-          <button
-            onClick={() => {
-              setTexto("");
-              setPropuesta(null);
-              setEstado(null);
-            }}
-            className="text-sm text-slate-500 underline"
-          >
-            Limpiar
-          </button>
-        )}
-      </div>
-
-      {ocupado && <p className="mt-3 text-sm text-slate-500">Interpretando…</p>}
-      {error && (
-        <p className="mt-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>
-      )}
-      {estado && (
-        <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-          {estado}
-        </p>
-      )}
-
-      {propuesta && (
-        <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4 text-sm">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="font-medium">{propuesta.operacion}</span>
-            <span className="text-xs text-slate-500">
-              confianza {(propuesta.confianza * 100).toFixed(0)} %
-            </span>
-          </div>
-          <dl className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
-            <Dato k="Descripción" v={propuesta.descripcion} />
-            <Dato k="Contraparte" v={propuesta.contraparte} />
-            <Dato k="Fecha" v={propuesta.fecha ?? "hoy"} />
-            <Dato k="Total" v={propuesta.monto_total ? usd(propuesta.monto_total) : null} />
-            <Dato k="Base" v={propuesta.base_imponible ? usd(propuesta.base_imponible) : null} />
-            <Dato k="IVA" v={propuesta.iva ? usd(propuesta.iva) : null} />
-            <Dato k="Categoría" v={propuesta.categoria} />
-            <Dato k="Cuenta" v={propuesta.cuenta_financiera} />
-          </dl>
-          <p className="mt-3 text-xs text-slate-600">{propuesta.interpretacion}</p>
-          {propuesta.faltantes.length > 0 && (
-            <p className="mt-2 rounded bg-amber-50 px-2 py-1 text-xs text-amber-900">
-              Falta: {propuesta.faltantes.join("; ")}
+          />
+          {escuchando && (
+            <p className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-rose-700">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-rose-600" />
+              Escuchando… pulsa «Detener» al terminar.
             </p>
           )}
         </div>
-      )}
-    </section>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {soportado ? (
+            <button
+              onClick={alternarEscucha}
+              aria-pressed={escuchando}
+              className={boton(escuchando ? "peligro" : "secundario")}
+            >
+              {escuchando ? <Square size={14} fill="currentColor" /> : <Mic size={16} />}
+              {escuchando ? "Detener" : "Dictar"}
+            </button>
+          ) : (
+            <span className="text-xs text-slate-500">
+              Este navegador no reconoce voz; escribe el texto.
+            </span>
+          )}
+
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {texto && (
+              <button
+                onClick={() => {
+                  setTexto("");
+                  setPropuesta(null);
+                  setEstado(null);
+                }}
+                className={boton("fantasma")}
+              >
+                Limpiar
+              </button>
+            )}
+
+            <button
+              onClick={() => enviar(false)}
+              disabled={ocupado || !textoValido}
+              className={boton("secundario")}
+            >
+              <Sparkles size={16} />
+              Interpretar
+            </button>
+
+            <button
+              onClick={() => enviar(true)}
+              disabled={ocupado || !textoValido}
+              className={boton("primario")}
+            >
+              Registrar y contabilizar
+            </button>
+          </div>
+        </div>
+
+        {ocupado && (
+          <p className="flex items-center gap-2 text-sm text-slate-500">
+            <LoaderCircle size={16} className="animate-spin" />
+            Interpretando…
+          </p>
+        )}
+        {error && <Aviso tono="peligro">{error}</Aviso>}
+        {estado && <Aviso tono="exito">{estado}</Aviso>}
+
+        {propuesta && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-4 text-sm">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <span className="font-semibold text-slate-900">{propuesta.operacion}</span>
+              <Insignia tono={tonoConfianza(propuesta.confianza)}>
+                confianza {(propuesta.confianza * 100).toFixed(0)} %
+              </Insignia>
+            </div>
+            <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+              <Dato k="Descripción" v={propuesta.descripcion} />
+              <Dato k="Contraparte" v={propuesta.contraparte} />
+              <Dato k="Fecha" v={propuesta.fecha ?? "hoy"} />
+              <Dato k="Total" v={propuesta.monto_total ? usd(propuesta.monto_total) : null} />
+              <Dato k="Base" v={propuesta.base_imponible ? usd(propuesta.base_imponible) : null} />
+              <Dato k="IVA" v={propuesta.iva ? usd(propuesta.iva) : null} />
+              <Dato k="Categoría" v={propuesta.categoria} />
+              <Dato k="Cuenta" v={propuesta.cuenta_financiera} />
+            </dl>
+            <p className="mt-3 border-t border-slate-200 pt-3 text-xs text-slate-600">
+              {propuesta.interpretacion}
+            </p>
+            {propuesta.faltantes.length > 0 && (
+              <div className="mt-3">
+                <Aviso tono="aviso">Falta: {propuesta.faltantes.join("; ")}</Aviso>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </Tarjeta>
   );
+}
+
+/** Color de la confianza de la IA: alta, media o baja. */
+function tonoConfianza(c: number): Tono {
+  if (c >= 0.8) return "exito";
+  if (c >= 0.5) return "aviso";
+  return "peligro";
 }
 
 function Dato({ k, v }: { k: string; v: string | null }) {
   return (
-    <div className="flex gap-2">
-      <dt className="text-slate-500">{k}:</dt>
-      <dd className="font-medium">{v ?? "—"}</dd>
+    <div className="flex min-w-0 items-baseline gap-2">
+      <dt className="shrink-0 text-xs text-slate-500">{k}</dt>
+      <dd className="min-w-0 truncate font-medium text-slate-900">{v ?? "—"}</dd>
     </div>
   );
 }
@@ -325,6 +358,15 @@ const ETIQUETA_ESTADO: Record<EstadoItem, string> = {
   listo: "listo",
   duplicado: "ya subido",
   error: "error",
+};
+
+const TONO_ESTADO: Record<EstadoItem, Tono> = {
+  pendiente: "neutro",
+  subiendo: "info",
+  procesando: "info",
+  listo: "exito",
+  duplicado: "aviso",
+  error: "peligro",
 };
 
 function PorDocumento() {
@@ -444,179 +486,204 @@ function PorDocumento() {
   const hayResueltos = items.some((i) => i.estado === "listo" || i.estado === "duplicado");
 
   return (
-    <section id="documento" className="scroll-mt-4 rounded-lg border border-slate-200 bg-white p-5">
-      <h2 className="font-medium">Por documento</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        PDF, imagen, XML o CSV. Puedes soltar varios estados de cuenta a la vez:
-        se procesan uno tras otro y cada uno se clasifica en el momento.
-      </p>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <label className="block">
-          <span className="text-sm text-slate-700">Tipo de documento</span>
-          <select
-            value={tipo}
-            onChange={(e) => setTipo(e.target.value)}
-            disabled={ocupado}
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"
-          >
-            {TIPOS_DOC.map((t) => (
-              <option key={t.valor} value={t.valor}>
-                {t.texto}
-              </option>
-            ))}
-          </select>
-          <span className="mt-1 block text-xs text-slate-400">
-            Se aplica a todos los documentos de la tanda.
-          </span>
-        </label>
-
-        {esExtracto && (
-          <label className="block">
-            <span className="text-sm text-slate-700">Cuenta financiera</span>
+    <Tarjeta
+      id="documento"
+      titulo="Por documento"
+      descripcion="PDF, imagen, XML o CSV. Puedes soltar varios estados de cuenta a la vez: se procesan uno tras otro y cada uno se clasifica en el momento."
+    >
+      <div className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label htmlFor="tipo-doc" className={etiqueta}>
+              Tipo de documento
+            </label>
             <select
-              value={cuentaId}
-              onChange={(e) => setCuentaId(e.target.value)}
+              id="tipo-doc"
+              value={tipo}
+              onChange={(e) => setTipo(e.target.value)}
               disabled={ocupado}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"
+              className={campo}
             >
-              <option value="">Detectar automáticamente (IA)</option>
-              {cuentas.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.nombre} · {c.tipo}
+              {TIPOS_DOC.map((t) => (
+                <option key={t.valor} value={t.valor}>
+                  {t.texto}
                 </option>
               ))}
             </select>
-            <span className="mt-1 block text-xs text-slate-400">
-              Con detección automática, cada estado de cuenta se asigna a su
-              cuenta por separado según lo que lea la IA.
-            </span>
-          </label>
-        )}
-      </div>
+            <p className="mt-1.5 text-xs text-slate-400">
+              Se aplica a todos los documentos de la tanda.
+            </p>
+          </div>
 
-      {/* Zona de arrastrar y soltar (varios archivos), también clicable */}
-      <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          if (!ocupado) setArrastrando(true);
-        }}
-        onDragLeave={() => setArrastrando(false)}
-        onDrop={(e) => !ocupado && alSoltar(e)}
-        onClick={() => !ocupado && inputRef.current?.click()}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) =>
-          !ocupado && (e.key === "Enter" || e.key === " ") && inputRef.current?.click()
-        }
-        className={`mt-3 flex flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-8 text-center transition-colors ${
-          ocupado ? "cursor-not-allowed opacity-60" : "cursor-pointer"
-        } ${
-          arrastrando
-            ? "border-emerald-500 bg-emerald-50"
-            : "border-slate-300 bg-slate-50 hover:border-emerald-400 hover:bg-slate-100"
-        }`}
-      >
-        <span className="text-sm text-slate-600">
-          Arrastra uno o varios documentos aquí o haz clic para elegirlos
-        </span>
-        <span className="mt-0.5 text-xs text-slate-400">PDF, imagen, XML o CSV</span>
-      </div>
+          {esExtracto && (
+            <div>
+              <label htmlFor="cuenta-doc" className={etiqueta}>
+                Cuenta financiera
+              </label>
+              <select
+                id="cuenta-doc"
+                value={cuentaId}
+                onChange={(e) => setCuentaId(e.target.value)}
+                disabled={ocupado}
+                className={campo}
+              >
+                <option value="">Detectar automáticamente (IA)</option>
+                {cuentas.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombre} · {c.tipo}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1.5 text-xs text-slate-400">
+                Con detección automática, cada estado de cuenta se asigna a su
+                cuenta por separado según lo que lea la IA.
+              </p>
+            </div>
+          )}
+        </div>
 
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.xml,.csv,.txt"
-        onChange={(e) => {
-          agregar(e.target.files);
-          e.target.value = ""; // permite volver a elegir el mismo archivo
-        }}
-        className="hidden"
-      />
-
-      {items.length > 0 && (
-        <ul className="mt-3 divide-y divide-slate-100 rounded-md border border-slate-200">
-          {items.map((it) => (
-            <li key={it.id} className="flex items-start gap-3 px-3 py-2 text-sm">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="truncate font-medium">{it.file.name}</span>
-                  <span className="shrink-0 text-xs text-slate-400">
-                    {(it.file.size / 1024).toFixed(0)} KB
-                  </span>
-                </div>
-                {it.mensaje && (
-                  <div
-                    className={`mt-0.5 text-xs ${
-                      it.estado === "error" ? "text-rose-700" : "text-slate-500"
-                    }`}
-                  >
-                    {it.mensaje}
-                  </div>
-                )}
-                {it.observaciones && it.observaciones.length > 0 && (
-                  <ul className="mt-1 space-y-0.5 border-l-2 border-amber-300 pl-2 text-xs text-amber-800">
-                    {it.observaciones.map((o, i) => (
-                      <li key={i}>{o}</li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <EstadoBadge estado={it.estado} />
-              {!ocupado && it.estado !== "procesando" && it.estado !== "subiendo" && (
-                <button
-                  onClick={() => quitar(it.id)}
-                  className="shrink-0 text-xs text-slate-400 hover:text-rose-600"
-                  aria-label="Quitar"
-                >
-                  ✕
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
-          onClick={procesarTodo}
-          disabled={ocupado || pendientes === 0}
-          className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+        {/* Zona de arrastrar y soltar (varios archivos), también clicable */}
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (!ocupado) setArrastrando(true);
+          }}
+          onDragLeave={() => setArrastrando(false)}
+          onDrop={(e) => !ocupado && alSoltar(e)}
+          onClick={() => !ocupado && inputRef.current?.click()}
+          role="button"
+          tabIndex={0}
+          aria-disabled={ocupado}
+          onKeyDown={(e) =>
+            !ocupado && (e.key === "Enter" || e.key === " ") && inputRef.current?.click()
+          }
+          className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-10 text-center transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 ${
+            ocupado ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+          } ${
+            arrastrando
+              ? "border-emerald-500 bg-emerald-50"
+              : "border-slate-300 bg-slate-50/60 hover:border-emerald-400 hover:bg-emerald-50/40"
+          }`}
         >
-          {ocupado
-            ? "Procesando…"
-            : pendientes > 1
-              ? `Subir y procesar ${pendientes} documentos`
-              : "Subir y procesar"}
-        </button>
+          <span
+            className={`mb-3 rounded-full p-3 ${
+              arrastrando
+                ? "bg-emerald-100 text-emerald-700"
+                : "bg-white text-emerald-600 shadow-sm ring-1 ring-slate-200"
+            }`}
+          >
+            <CloudUpload size={24} />
+          </span>
+          <span className="text-sm font-medium text-slate-700">
+            {arrastrando ? (
+              "Suelta los documentos aquí"
+            ) : (
+              <>
+                Arrastra uno o varios documentos aquí o{" "}
+                <span className="text-emerald-700 underline underline-offset-2">
+                  haz clic para elegirlos
+                </span>
+              </>
+            )}
+          </span>
+          <span className="mt-1 text-xs text-slate-400">PDF, imagen, XML o CSV</span>
+        </div>
 
-        {hayResueltos && !ocupado && (
-          <button
-            onClick={() =>
-              setItems((prev) =>
-                prev.filter((i) => i.estado !== "listo" && i.estado !== "duplicado"),
-              )
-            }
-            className="text-sm text-slate-500 underline hover:text-slate-700"
-          >
-            Quitar los ya procesados
-          </button>
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.xml,.csv,.txt"
+          onChange={(e) => {
+            agregar(e.target.files);
+            e.target.value = ""; // permite volver a elegir el mismo archivo
+          }}
+          className="hidden"
+        />
+
+        {error && <Aviso tono="peligro">{error}</Aviso>}
+
+        {items.length > 0 && (
+          <ul className="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200">
+            {items.map((it) => (
+              <li key={it.id} className="flex items-start gap-3 px-4 py-3 text-sm">
+                <span className="mt-0.5 shrink-0 rounded-md bg-slate-100 p-1.5 text-slate-500">
+                  <FileText size={16} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate font-medium text-slate-900">{it.file.name}</span>
+                    <span className="shrink-0 text-xs tabular-nums text-slate-400">
+                      {(it.file.size / 1024).toFixed(0)} KB
+                    </span>
+                  </div>
+                  {it.mensaje && (
+                    <div
+                      className={`mt-0.5 text-xs ${
+                        it.estado === "error" ? "text-rose-700" : "text-slate-500"
+                      }`}
+                    >
+                      {it.mensaje}
+                    </div>
+                  )}
+                  {it.observaciones && it.observaciones.length > 0 && (
+                    <ul className="mt-1.5 space-y-0.5 border-l-2 border-amber-300 pl-2 text-xs text-amber-800">
+                      {it.observaciones.map((o, i) => (
+                        <li key={i}>{o}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <EstadoBadge estado={it.estado} />
+                {!ocupado && it.estado !== "procesando" && it.estado !== "subiendo" && (
+                  <button
+                    onClick={() => quitar(it.id)}
+                    className="-mr-1 shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
+                    aria-label="Quitar"
+                    title="Quitar"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
         )}
-        {items.length > 0 && !ocupado && (
+
+        <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={() => setItems([])}
-            className="text-sm text-slate-500 underline hover:text-slate-700"
+            onClick={procesarTodo}
+            disabled={ocupado || pendientes === 0}
+            className={boton("primario")}
           >
-            Limpiar todo
+            {ocupado && <LoaderCircle size={16} className="animate-spin" />}
+            {ocupado
+              ? "Procesando…"
+              : pendientes > 1
+                ? `Subir y procesar ${pendientes} documentos`
+                : "Subir y procesar"}
           </button>
-        )}
+
+          {hayResueltos && !ocupado && (
+            <button
+              onClick={() =>
+                setItems((prev) =>
+                  prev.filter((i) => i.estado !== "listo" && i.estado !== "duplicado"),
+                )
+              }
+              className={boton("fantasma")}
+            >
+              Quitar los ya procesados
+            </button>
+          )}
+          {items.length > 0 && !ocupado && (
+            <button onClick={() => setItems([])} className={boton("fantasma")}>
+              Limpiar todo
+            </button>
+          )}
+        </div>
       </div>
-
-      {error && (
-        <p className="mt-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>
-      )}
-    </section>
+    </Tarjeta>
   );
 }
 
@@ -652,19 +719,13 @@ async function esperarProceso(
 }
 
 function EstadoBadge({ estado }: { estado: EstadoItem }) {
-  const clase =
-    estado === "listo"
-      ? "bg-emerald-100 text-emerald-800"
-      : estado === "error"
-        ? "bg-rose-100 text-rose-800"
-        : estado === "duplicado"
-          ? "bg-amber-100 text-amber-900"
-          : estado === "pendiente"
-            ? "bg-slate-100 text-slate-600"
-            : "bg-sky-100 text-sky-800";
+  const enCurso = estado === "subiendo" || estado === "procesando";
   return (
-    <span className={`shrink-0 rounded px-2 py-0.5 text-xs ${clase}`}>
-      {ETIQUETA_ESTADO[estado]}
+    <span className="shrink-0">
+      <Insignia tono={TONO_ESTADO[estado]}>
+        {enCurso && <LoaderCircle size={12} className="animate-spin" />}
+        {ETIQUETA_ESTADO[estado]}
+      </Insignia>
     </span>
   );
 }

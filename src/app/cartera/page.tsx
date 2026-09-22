@@ -1,8 +1,21 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { HandCoins, Plus, Wallet, X } from "lucide-react";
 import { usd, fecha } from "@/lib/formato";
 import { useCarga } from "@/lib/carga";
+import {
+  Aviso,
+  Encabezado,
+  Esqueleto,
+  Insignia,
+  Tarjeta,
+  Vacio,
+  boton,
+  campo,
+  etiqueta,
+  tabla,
+} from "@/components/ui";
 
 interface Documento {
   id: string;
@@ -89,26 +102,29 @@ export default function Cartera() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Cartera</h1>
-          <p className="text-sm text-slate-600">
-            Cuentas y documentos por cobrar y por pagar. Los de facturas
-            aparecen solos; aquí se añaden préstamos, letras y pagarés.
-          </p>
-        </div>
-        <button
-          onClick={() => setNuevoAbierto(!nuevoAbierto)}
-          className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-        >
-          {nuevoAbierto ? "Cancelar" : "Nuevo documento"}
-        </button>
-      </div>
+      <Encabezado
+        titulo="Cartera"
+        descripcion="Cuentas y documentos por cobrar y por pagar. Los de facturas aparecen solos; aquí se añaden préstamos, letras y pagarés."
+        acciones={
+          <button
+            onClick={() => setNuevoAbierto(!nuevoAbierto)}
+            className={boton(nuevoAbierto ? "secundario" : "primario")}
+          >
+            {nuevoAbierto ? (
+              <>
+                <X size={16} /> Cancelar
+              </>
+            ) : (
+              <>
+                <Plus size={16} /> Nuevo documento
+              </>
+            )}
+          </button>
+        }
+      />
 
-      {aviso && (
-        <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{aviso}</p>
-      )}
-      {error && <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
+      {aviso && <Aviso tono="exito">{aviso}</Aviso>}
+      {error && <Aviso tono="peligro">{error}</Aviso>}
 
       {nuevoAbierto && (
         <FormularioDocumento
@@ -136,10 +152,22 @@ export default function Cartera() {
         />
       )}
 
-      {cargando && <p className="text-sm text-slate-500">Cargando…</p>}
-
-      <Grupo id="cobrar" titulo="Por cobrar" docs={cobrar} tono="verde" alAbonar={setAbonando} />
-      <Grupo id="pagar" titulo="Por pagar" docs={pagar} tono="rojo" alAbonar={setAbonando} />
+      <Grupo
+        id="cobrar"
+        titulo="Por cobrar"
+        docs={cobrar}
+        tono="verde"
+        cargando={cargando}
+        alAbonar={setAbonando}
+      />
+      <Grupo
+        id="pagar"
+        titulo="Por pagar"
+        docs={pagar}
+        tono="rojo"
+        cargando={cargando}
+        alAbonar={setAbonando}
+      />
     </div>
   );
 }
@@ -149,83 +177,99 @@ function Grupo({
   titulo,
   docs,
   tono,
+  cargando,
   alAbonar,
 }: {
   id: string;
   titulo: string;
   docs: Documento[];
   tono: "verde" | "rojo";
+  cargando: boolean;
   alAbonar: (d: Documento) => void;
 }) {
   const total = docs.reduce((s, d) => s + Number(d.saldo), 0);
   const vencido = docs.filter((d) => d.dias_vencido > 0).reduce((s, d) => s + Number(d.saldo), 0);
 
   return (
-    <section id={id} className="scroll-mt-4 rounded-lg border border-slate-200 bg-white p-5">
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="font-medium">{titulo}</h2>
-        <div className="text-sm">
+    <Tarjeta
+      id={id}
+      titulo={titulo}
+      descripcion={
+        docs.length > 0
+          ? `${docs.length} documento${docs.length === 1 ? "" : "s"} con saldo`
+          : undefined
+      }
+      acciones={
+        <div className="flex flex-wrap items-center gap-3">
+          {vencido > 0 && <Insignia tono="peligro">Vencido {usd(vencido)}</Insignia>}
           <span
-            className={`font-semibold tabular-nums ${tono === "verde" ? "text-emerald-700" : "text-rose-700"}`}
+            className={`text-lg font-semibold tabular-nums tracking-tight ${
+              tono === "verde" ? "text-emerald-700" : "text-rose-700"
+            }`}
           >
             {usd(total)}
           </span>
-          {vencido > 0 && <span className="ml-3 text-rose-700">vencido {usd(vencido)}</span>}
         </div>
-      </div>
-
-      {docs.length === 0 ? (
-        <p className="text-sm text-slate-500">Nada pendiente.</p>
+      }
+      sinRelleno
+    >
+      {cargando && docs.length === 0 ? (
+        <div className="space-y-3 p-5">
+          <Esqueleto />
+          <Esqueleto />
+          <Esqueleto className="h-4 w-2/3" />
+        </div>
+      ) : docs.length === 0 ? (
+        <Vacio
+          icono={tono === "verde" ? HandCoins : Wallet}
+          titulo="Nada pendiente"
+          descripcion={
+            tono === "verde" ? "Nadie te debe nada ahora mismo." : "No hay nada por pagar ahora mismo."
+          }
+        />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
+        <div className={`${tabla.contenedor} max-h-[70vh]`}>
+          <table className={tabla.tabla}>
+            <thead className={tabla.cabecera}>
               <tr>
-                <th className="py-2">Tercero</th>
-                <th className="py-2">Documento</th>
-                <th className="py-2">Vence</th>
-                <th className="py-2">Antigüedad</th>
-                <th className="py-2 text-right">Original</th>
-                <th className="py-2 text-right">Saldo</th>
-                <th className="py-2"></th>
+                <th className={tabla.th}>Tercero</th>
+                <th className={tabla.th}>Documento</th>
+                <th className={tabla.th}>Vence</th>
+                <th className={tabla.th}>Antigüedad</th>
+                <th className={`${tabla.th} text-right`}>Original</th>
+                <th className={`${tabla.th} text-right`}>Saldo</th>
+                <th className={tabla.th}>
+                  <span className="sr-only">Acciones</span>
+                </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className={tabla.cuerpo}>
               {docs.map((d) => (
-                <tr key={d.id}>
-                  <td className="py-2">
-                    <div className="font-medium">{d.nombre_tercero}</div>
+                <tr key={d.id} className={tabla.fila}>
+                  <td className={tabla.td}>
+                    <div className="font-medium text-slate-900">{d.nombre_tercero}</div>
                     <div className="text-xs text-slate-400">{NOMBRE_CLASE[d.clase]}</div>
                   </td>
-                  <td className="py-2">
-                    {d.descripcion}
-                    {d.referencia && (
-                      <span className="ml-1 text-xs text-slate-400">{d.referencia}</span>
-                    )}
+                  <td className={`${tabla.td} min-w-48`}>
+                    <div className="text-slate-700">{d.descripcion}</div>
+                    {d.referencia && <div className="text-xs text-slate-400">{d.referencia}</div>}
                   </td>
-                  <td className="whitespace-nowrap py-2 text-slate-600">
+                  <td className={`${tabla.td} whitespace-nowrap text-slate-500`}>
                     {fecha(d.fecha_vencimiento)}
                   </td>
-                  <td className="py-2">
-                    <span
-                      className={`rounded px-2 py-0.5 text-xs ${
-                        d.rango === "POR_VENCER"
-                          ? "bg-slate-100 text-slate-600"
-                          : "bg-rose-100 text-rose-800"
-                      }`}
-                    >
+                  <td className={tabla.td}>
+                    <Insignia tono={d.rango === "POR_VENCER" ? "neutro" : "peligro"}>
                       {NOMBRE_RANGO[d.rango] ?? d.rango}
-                    </span>
+                    </Insignia>
                   </td>
-                  <td className="py-2 text-right tabular-nums text-slate-500">
+                  <td className={`${tabla.td} ${tabla.numero} text-slate-500`}>
                     {usd(d.monto_original)}
                   </td>
-                  <td className="py-2 text-right font-medium tabular-nums">{usd(d.saldo)}</td>
-                  <td className="py-2 text-right">
-                    <button
-                      onClick={() => alAbonar(d)}
-                      className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
-                    >
+                  <td className={`${tabla.td} ${tabla.numero} font-medium text-slate-900`}>
+                    {usd(d.saldo)}
+                  </td>
+                  <td className={`${tabla.td} text-right`}>
+                    <button onClick={() => alAbonar(d)} className={boton("secundario", "sm")}>
                       {d.clase === "CXC" || d.clase === "DOC_COBRAR" ? "Cobrar" : "Pagar"}
                     </button>
                   </td>
@@ -235,7 +279,7 @@ function Grupo({
           </table>
         </div>
       )}
-    </section>
+    </Tarjeta>
   );
 }
 
@@ -275,54 +319,48 @@ function FormularioDocumento({
   }
 
   return (
-    <form
-      onSubmit={enviar}
-      className="grid gap-3 rounded-lg border border-slate-200 bg-white p-5 sm:grid-cols-3"
+    <Tarjeta
+      titulo="Nuevo documento"
+      descripcion="Préstamos, letras, pagarés u otras deudas que no vienen de una factura."
     >
-      <label className="text-sm">
-        <span className="text-slate-700">Clase</span>
-        <select
-          name="clase"
-          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-        >
-          <option value="DOC_COBRAR">Documento por cobrar</option>
-          <option value="CXC">Cuenta por cobrar</option>
-          <option value="DOC_PAGAR">Documento por pagar</option>
-          <option value="CXP">Cuenta por pagar</option>
-        </select>
-      </label>
+      <form onSubmit={enviar} className="grid gap-4 sm:grid-cols-3">
+        <label className="block">
+          <span className={etiqueta}>Clase</span>
+          <select name="clase" className={campo}>
+            <option value="DOC_COBRAR">Documento por cobrar</option>
+            <option value="CXC">Cuenta por cobrar</option>
+            <option value="DOC_PAGAR">Documento por pagar</option>
+            <option value="CXP">Cuenta por pagar</option>
+          </select>
+        </label>
 
-      <Campo etiqueta="Tercero" nombre="nombre_tercero" requerido />
-      <Campo etiqueta="Identificación" nombre="identificacion" />
-      <Campo etiqueta="Descripción" nombre="descripcion" requerido />
-      <Campo etiqueta="Referencia" nombre="referencia" />
-      <Campo etiqueta="Monto" nombre="monto_original" tipo="number" paso="0.01" requerido />
-      <Campo etiqueta="Emisión" nombre="fecha_emision" tipo="date" valor={HOY()} requerido />
-      <Campo etiqueta="Vencimiento" nombre="fecha_vencimiento" tipo="date" requerido />
+        <Campo etiqueta="Tercero" nombre="nombre_tercero" requerido />
+        <Campo etiqueta="Identificación" nombre="identificacion" />
+        <Campo etiqueta="Descripción" nombre="descripcion" requerido />
+        <Campo etiqueta="Referencia" nombre="referencia" />
+        <Campo etiqueta="Monto" nombre="monto_original" tipo="number" paso="0.01" requerido />
+        <Campo etiqueta="Fecha de emisión" nombre="fecha_emision" tipo="date" valor={HOY()} requerido />
+        <Campo etiqueta="Fecha de vencimiento" nombre="fecha_vencimiento" tipo="date" requerido />
 
-      <label className="text-sm">
-        <span className="text-slate-700">Contrapartida</span>
-        <select
-          name="cuenta_financiera_id"
-          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-        >
-          <option value="">Bancos (por defecto)</option>
-          {cuentas.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.nombre}
-            </option>
-          ))}
-        </select>
-      </label>
+        <label className="block">
+          <span className={etiqueta}>Contrapartida</span>
+          <select name="cuenta_financiera_id" className={campo}>
+            <option value="">Bancos (por defecto)</option>
+            {cuentas.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nombre}
+              </option>
+            ))}
+          </select>
+        </label>
 
-      <button
-        type="submit"
-        disabled={ocupado}
-        className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 sm:col-span-3"
-      >
-        {ocupado ? "Guardando…" : "Registrar y contabilizar"}
-      </button>
-    </form>
+        <div className="flex justify-end border-t border-slate-100 pt-4 sm:col-span-3">
+          <button type="submit" disabled={ocupado} className={boton("primario")}>
+            {ocupado ? "Guardando…" : "Registrar y contabilizar"}
+          </button>
+        </div>
+      </form>
+    </Tarjeta>
   );
 }
 
@@ -368,63 +406,56 @@ function FormularioAbono({
   }
 
   return (
-    <form
-      onSubmit={enviar}
-      className="grid gap-3 rounded-lg border border-emerald-300 bg-emerald-50 p-5 sm:grid-cols-4"
+    <Tarjeta
+      titulo={`${cobro ? "Cobrar" : "Pagar"} · ${documento.nombre_tercero}`}
+      descripcion={documento.descripcion}
+      acciones={
+        <span className="text-sm text-slate-500">
+          Saldo{" "}
+          <span className="font-semibold tabular-nums text-slate-900">{usd(documento.saldo)}</span>
+        </span>
+      }
+      className="border-emerald-300 ring-2 ring-emerald-500/10"
     >
-      <p className="text-sm sm:col-span-4">
-        <strong>{cobro ? "Cobrar" : "Pagar"}</strong> · {documento.nombre_tercero} ·{" "}
-        {documento.descripcion} · saldo {usd(documento.saldo)}
-      </p>
+      <form onSubmit={enviar} className="grid gap-4 sm:grid-cols-4">
+        <Campo
+          etiqueta="Monto"
+          nombre="monto"
+          tipo="number"
+          paso="0.01"
+          valor={String(documento.saldo)}
+          requerido
+        />
+        <Campo etiqueta="Interés" nombre="interes" tipo="number" paso="0.01" valor="0" />
+        <Campo etiqueta="Fecha" nombre="fecha" tipo="date" valor={HOY()} requerido />
 
-      <Campo
-        etiqueta="Monto"
-        nombre="monto"
-        tipo="number"
-        paso="0.01"
-        valor={String(documento.saldo)}
-        requerido
-      />
-      <Campo etiqueta="Interés" nombre="interes" tipo="number" paso="0.01" valor="0" />
-      <Campo etiqueta="Fecha" nombre="fecha" tipo="date" valor={HOY()} requerido />
+        <label className="block">
+          <span className={etiqueta}>Cuenta</span>
+          <select name="cuenta_financiera_id" className={campo}>
+            <option value="">Bancos (por defecto)</option>
+            {cuentas.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nombre}
+              </option>
+            ))}
+          </select>
+        </label>
 
-      <label className="text-sm">
-        <span className="text-slate-700">Cuenta</span>
-        <select
-          name="cuenta_financiera_id"
-          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-        >
-          <option value="">Bancos (por defecto)</option>
-          {cuentas.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.nombre}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <div className="flex gap-2 sm:col-span-4">
-        <button
-          type="submit"
-          disabled={ocupado}
-          className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-        >
-          {ocupado ? "Guardando…" : "Registrar"}
-        </button>
-        <button
-          type="button"
-          onClick={alCerrar}
-          className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-100"
-        >
-          Cancelar
-        </button>
-      </div>
-    </form>
+        <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 sm:col-span-4">
+          <button type="button" onClick={alCerrar} className={boton("secundario")}>
+            Cancelar
+          </button>
+          <button type="submit" disabled={ocupado} className={boton("primario")}>
+            {ocupado ? "Guardando…" : `Registrar ${cobro ? "cobro" : "pago"}`}
+          </button>
+        </div>
+      </form>
+    </Tarjeta>
   );
 }
 
 function Campo({
-  etiqueta,
+  etiqueta: texto,
   nombre,
   tipo = "text",
   paso,
@@ -439,15 +470,15 @@ function Campo({
   requerido?: boolean;
 }) {
   return (
-    <label className="text-sm">
-      <span className="text-slate-700">{etiqueta}</span>
+    <label className="block">
+      <span className={etiqueta}>{texto}</span>
       <input
         name={nombre}
         type={tipo}
         step={paso}
         defaultValue={valor}
         required={requerido}
-        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+        className={`${campo} ${tipo === "number" ? "text-right tabular-nums" : ""}`}
       />
     </label>
   );
