@@ -17,7 +17,7 @@ import { z } from "zod";
  *
  * Se eligió gemma4:26b porque, sobre un PacifiCard escaneado, leyó todas las
  * cifras exactas —sus consumos suman los 251,92 que imprime el extracto— donde
- * el OCR de Mistral había confundido ochos con cincos. El precio es la
+ * el OCR anterior había confundido ochos con cincos. El precio es la
  * velocidad: unos 11 tokens por segundo y tres o cuatro minutos por página
  * escaneada. Por eso los documentos se procesan en segundo plano.
  */

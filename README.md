@@ -63,10 +63,9 @@ markdown la visión del modelo, una por una; después el mismo modelo estructura
 ese texto. Así la extracción trabaja sobre cifras leídas una sola vez.
 
 **La IA corre en casa.** El modelo es `gemma4:26b` sobre Ollama, en el ThinkPad
-de la malla Tailscale (96 GB de RAM). Se eligió frente a Mistral por las cifras:
-en un PacifiCard escaneado leyó todos los importes exactos —los consumos suman
-los 251,92 que imprime el extracto— donde el OCR de Mistral había cambiado ochos
-por cincos. El precio es el tiempo: tres o cuatro minutos por página escaneada.
+de la malla Tailscale (96 GB de RAM). Se eligió por las cifras: en un PacifiCard
+escaneado leyó todos los importes exactos —los consumos suman los 251,92 que
+imprime el extracto— donde el OCR anterior había cambiado ochos por cincos. El precio es el tiempo: tres o cuatro minutos por página escaneada.
 Por eso los documentos se procesan en segundo plano, de uno en uno, y la
 pantalla consulta el estado hasta que terminan. El ThinkPad tiene que estar
 encendido para procesar documentos o interpretar la voz.
