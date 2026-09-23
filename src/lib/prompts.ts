@@ -29,6 +29,9 @@ Cómo determinar la naturaleza de cada movimiento:
 - Tarjeta de crédito: DEBITO si el consumo aumenta la deuda (compras, avances,
   intereses, comisiones); CREDITO si la reduce (pagos realizados, notas de
   crédito, reversos).
+- "N/D" es nota de DÉBITO: aumenta la deuda o saca dinero de la cuenta. La que
+  la reduce es "N/C", nota de crédito. Confundirlas descuadra el extracto por
+  el doble del importe.
 
 Reglas de extracción:
 - Devuelve el monto siempre como número positivo; el signo lo lleva la naturaleza.
