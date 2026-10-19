@@ -1,4 +1,6 @@
 import { PGlite } from "@electric-sql/pglite";
+import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
+import { unaccent } from "@electric-sql/pglite/contrib/unaccent";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,7 +20,7 @@ const AQUI = dirname(fileURLToPath(import.meta.url));
 export const DIR_MIGRACIONES = join(AQUI, "..", "migrations");
 
 export async function baseDePruebas() {
-  const db = await new PGlite();
+  const db = await new PGlite({ extensions: { pgcrypto, unaccent } });
 
   await db.exec(`
     create role authenticated;
@@ -49,12 +51,9 @@ export async function baseDePruebas() {
     .sort();
 
   for (const archivo of archivos) {
-    // pgcrypto y unaccent no vienen empaquetados en PGlite; gen_random_uuid()
-    // es nativo desde PostgreSQL 13, que es lo único que se usa de pgcrypto.
-    const sql = readFileSync(join(DIR_MIGRACIONES, archivo), "utf8").replace(
-      /create extension[^;]+;/gi,
-      "",
-    );
+    // pgcrypto y unaccent vienen como extensiones de PGlite: el SQL se aplica
+    // tal cual, `create extension` incluido.
+    const sql = readFileSync(join(DIR_MIGRACIONES, archivo), "utf8");
     try {
       await db.exec(sql);
     } catch (e) {

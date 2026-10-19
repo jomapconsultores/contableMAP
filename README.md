@@ -86,12 +86,16 @@ npm run test:sri
 
 Levanta un PostgreSQL 17 real en proceso (PGlite), replica el andamiaje que
 aporta Supabase (rol `authenticated`, esquemas `auth` y `storage`), aplica las
-once migraciones **sin modificar una línea del SQL que se despliega** y
-ejecuta 48 comprobaciones sobre el motor: cuadre de asientos, rechazo de
-períodos cerrados, saldos de cartera, formulario 104 —incluido que el IVA sin
-derecho a crédito no reste del impuesto causado—, topes de gastos personales,
-exención de los décimos en el impuesto a la renta y la reserva atómica de los
-secuenciales de facturación electrónica.
+migraciones **sin modificar una línea del SQL que se despliega** —con
+`pgcrypto` y `unaccent` cargadas como extensiones de PGlite— y ejecuta 64
+comprobaciones sobre el motor: cuadre de asientos, que lo contabilizado en un
+mes cerrado no se toque y que nada contabilizado quede descuadrado, un solo
+asiento vivo por origen, saldos de cartera, formulario 104 —incluido que el
+IVA sin derecho a crédito no reste del impuesto causado, que la nota de crédito
+reste y que el crédito se arrastre mes a mes sin contarse dos veces—, el
+balance sin asiento de cierre, topes de gastos personales, exención de los
+décimos en el impuesto a la renta y la reserva atómica de los secuenciales de
+facturación electrónica.
 
 No es una prueba de que el SQL compile: es una prueba de que la contabilidad
 cuadra y de que las invariantes se rechazan cuando deben.
@@ -204,6 +208,10 @@ supabase/migrations/   0001 núcleo · 0002 contabilidad · 0003 documentos
                        0012 recobros · 0013 traspasos · 0014 acreditación
                        0015 huella con referencia
                        0016 una cuenta contable por cuenta financiera
+                       0017–0027 desgloses, patrimonio declarado,
+                       reclasificaciones, caja y panel
+                       0028 reglas del motor (períodos, cuadre, 104)
+                       0029 tarjetas cuadradas y diferidos
 src/lib/               ia · esquemas · prompts · extraccion · clasificacion
                        contabilizacion · cuentas · api · fechas · formato
                        carga · supabase/

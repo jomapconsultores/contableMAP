@@ -130,6 +130,61 @@ await v.debeFallar(db, "rechaza registrar en período cerrado", `
   end $$;`);
 
 // ---------------------------------------------------------------------------
+console.log("\n3b. Lo contabilizado en un mes cerrado queda congelado");
+
+// Se usa 2027 para no mover las cifras de 2026 que comprueban las secciones
+// siguientes.
+const a3 = await uno(`
+  insert into public.asientos (entidad_id, fecha, glosa, origen, origen_id)
+  values ('${E}','2027-01-10','Traspaso a capital','MANUAL', gen_random_uuid())
+  returning id, origen_id`);
+await db.exec(`
+  insert into public.asiento_lineas (asiento_id, orden, cuenta_id, debe, haber) values
+    ('${a3.id}', 1, '${banco}',   20, 0),
+    ('${a3.id}', 2, '${capital}', 0, 20);
+  update public.asientos set estado='CONTABILIZADO' where id='${a3.id}';
+  insert into public.periodos (entidad_id, anio, mes, estado) values ('${E}', 2027, 1, 'CERRADO');`);
+
+await v.debeFallar(db, "en mes cerrado no se cambian las líneas", `
+  update public.asiento_lineas set debe = 30 where asiento_id='${a3.id}' and orden = 1`);
+await v.debeFallar(db, "en mes cerrado no se añaden líneas", `
+  insert into public.asiento_lineas (asiento_id, orden, cuenta_id, debe, haber)
+  values ('${a3.id}', 3, '${banco}', 5, 0)`);
+await v.debeFallar(db, "en mes cerrado no se anula el asiento", `
+  update public.asientos set estado='ANULADO' where id='${a3.id}'`);
+await v.debeFallar(db, "en mes cerrado no se muda la fecha", `
+  update public.asientos set fecha='2027-02-01' where id='${a3.id}'`);
+await v.debeFallar(db, "en mes cerrado no se borra el asiento", `
+  delete from public.asientos where id='${a3.id}'`);
+
+await v.debeFallar(db, "no se inserta un asiento ya contabilizado", `
+  insert into public.asientos (entidad_id, fecha, glosa, origen, estado)
+  values ('${E}','2027-03-01','Sin pasar por borrador','MANUAL','CONTABILIZADO')`);
+
+await v.debeFallar(db, "un mismo origen no genera dos asientos vivos", `
+  insert into public.asientos (entidad_id, fecha, glosa, origen, origen_id)
+  values ('${E}','2027-03-01','Doble clic','MANUAL','${a3.origen_id}')`);
+
+const a4 = await uno(`
+  insert into public.asientos (entidad_id, fecha, glosa, origen)
+  values ('${E}','2027-03-02','Asiento abierto','MANUAL') returning id`);
+await db.exec(`
+  insert into public.asiento_lineas (asiento_id, orden, cuenta_id, debe, haber) values
+    ('${a4.id}', 1, '${banco}',   40, 0),
+    ('${a4.id}', 2, '${capital}', 0, 40);
+  update public.asientos set estado='CONTABILIZADO' where id='${a4.id}';`);
+await v.debeFallar(db, "lo contabilizado no queda descuadrado al tocar una línea", `
+  update public.asiento_lineas set debe = 45 where asiento_id='${a4.id}' and orden = 1`);
+await db.exec(`
+  update public.asiento_lineas set debe = 45 where asiento_id='${a4.id}' and orden = 1;
+  update public.asiento_lineas set haber = 45 where asiento_id='${a4.id}' and orden = 2;`);
+const a4b = await uno(`
+  select sum(debe)::numeric d, sum(haber)::numeric h
+    from public.asiento_lineas where asiento_id='${a4.id}'`);
+v.comprobar("pero sí se corrige si el asiento sigue cuadrando",
+  Number(a4b.d) === 45 && Number(a4b.h) === 45, `(${a4b.d}/${a4b.h})`);
+
+// ---------------------------------------------------------------------------
 console.log("\n4. Estados financieros");
 
 const { r: pyg } = await uno(
@@ -357,5 +412,61 @@ const resumenAgosto = await uno(
 v.comprobar("la factura electrónica entra en el libro de ventas",
   Number(resumenAgosto.base_gravada) === 100 && Number(resumenAgosto.iva_generado) === 15,
   `(base ${resumenAgosto.base_gravada}, IVA ${resumenAgosto.iva_generado})`);
+
+// ---------------------------------------------------------------------------
+console.log("\n10. Arrastre del crédito de IVA y notas de crédito");
+
+// La aplicación deja constancia del IVA de compras y de la retención recibida
+// en el mayor de crédito tributario. El arrastre no debe volver a sumarlos: ya
+// entraron en el 104 de su propio mes.
+await db.exec(`
+  insert into public.credito_tributario (entidad_id, impuesto, anio, mes, fecha, tipo, concepto, monto)
+  values ('${E}','IVA',2026,3,'2026-03-05','ADQUISICIONES','IVA en compra', 60),
+         ('${E}','IVA',2026,3,'2026-03-10','RETENCION_RECIBIDA','Retención de IVA', 105)`);
+
+const { v: abril } = await uno(`select public.fn_calcular_iva('${E}',2026,4) v`);
+v.comprobar("el crédito anterior es el 609 del mes anterior, no la suma histórica",
+  Number(abril.resumen.c602_credito_periodo_anterior) === 15,
+  `(${abril.resumen.c602_credito_periodo_anterior})`);
+
+const { s: saldoAbril } = await uno(
+  `select public.fn_saldo_credito_tributario('${E}','IVA',2026,4) s`);
+v.comprobar("el saldo del panel coincide con el arrastre", Number(saldoAbril) === 15,
+  `(${saldoAbril})`);
+
+await db.exec(`
+  insert into public.ventas (entidad_id, fecha, secuencial, razon_social_cliente,
+    base_15, iva_15, total)
+  values ('${E}','2026-05-10','000000002','CLIENTE UNO', 200, 30, 230);
+  insert into public.ventas (entidad_id, fecha, tipo_comprobante, secuencial, razon_social_cliente,
+    base_15, iva_15, total)
+  values ('${E}','2026-05-12','NOTA_CREDITO','000000001','CLIENTE UNO', 100, 15, 115);`);
+
+const { v: mayo } = await uno(`select public.fn_calcular_iva('${E}',2026,5) v`);
+v.comprobar("la nota de crédito resta del IVA generado",
+  Number(mayo.ventas.c480_iva_generado) === 15, `(${mayo.ventas.c480_iva_generado})`);
+v.comprobar("y el crédito anterior lo compensa",
+  Number(mayo.resumen.c619_impuesto_a_pagar) === 0 &&
+    Number(mayo.resumen.c609_credito_proximo_periodo) === 0,
+  `(paga ${mayo.resumen.c619_impuesto_a_pagar}, arrastra ${mayo.resumen.c609_credito_proximo_periodo})`);
+
+// ---------------------------------------------------------------------------
+console.log("\n11. Balance sin asiento de cierre y entidades nuevas");
+
+const { b: bal27 } = await uno(`select public.fn_balance_general('${E}','2027-06-30') b`);
+v.comprobar("el resultado de 2026 sin cerrar sigue en el patrimonio",
+  Number(bal27.resultados_anteriores_sin_cerrar) === -100,
+  `(${bal27.resultados_anteriores_sin_cerrar})`);
+v.comprobar("y el balance del año siguiente cuadra", Math.abs(Number(bal27.descuadre)) < 0.01,
+  `(descuadre ${bal27.descuadre})`);
+
+const nueva = await uno(`
+  insert into public.entidades (user_id, ruc, razon_social, regimen)
+  values ('${UID}', '0991234567001', 'OTRA ENTIDAD', 'GENERAL') returning id`);
+const puentes = await uno(`
+  select count(*)::int n from public.plan_cuentas
+   where entidad_id='${nueva.id}' and codigo in ('1.1.01.99','2.1.07')`);
+v.comprobar("una entidad nueva nace con la cuenta de traspasos y la del sueldo",
+  puentes.n === 2, `(${puentes.n}/2)`);
 
 process.exit(v.resumen() > 0 ? 1 : 0);
