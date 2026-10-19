@@ -123,6 +123,11 @@ Reglas:
   rara vez supera 0,8.
 - Los cargos del propio banco (comisiones, intereses, mantenimiento,
   impuesto a la salida de divisas) son gastos financieros, no consumos.
+- Cada movimiento dice si es CARGO (sale dinero de la cuenta o crece la deuda
+  de la tarjeta) o ABONO (entra dinero o baja la deuda). Un ABONO de un
+  comercio es una devolución y va a la misma categoría de la compra; un ABONO
+  que no es devolución es un ingreso, un traspaso o una acreditación, nunca una
+  categoría de gasto cualquiera.
 - Los pagos de la tarjeta desde la cuenta bancaria no son gastos: son
   transferencias entre cuentas propias: "TRASPASO ENTRE CUENTAS".
 - La acreditación del sueldo ya viene registrada por el rol de pago. Va en

@@ -245,7 +245,7 @@ async function procesarExtracto(
       onConflict: "entidad_id,cuenta_id,hash_linea",
       ignoreDuplicates: true,
     })
-    .select("id, fecha, descripcion, comercio, monto");
+    .select("id, fecha, descripcion, comercio, monto, naturaleza");
 
   if (error) throw new ErrorPeticion(`No se pudieron guardar los movimientos: ${error.message}`, 500);
 
@@ -263,6 +263,7 @@ async function procesarExtracto(
         comercio: m.comercio as string | null,
         monto: Number(m.monto),
         fecha: m.fecha as string,
+        naturaleza: m.naturaleza as "DEBITO" | "CREDITO",
       })),
     );
 
@@ -289,6 +290,17 @@ async function procesarExtracto(
     })
     .eq("id", doc.id);
 
+  // El cuadre no se deja en manos del modelo: saldo anterior más lo leído
+  // tiene que dar el saldo que imprime el extracto. Si no da, falta o sobra
+  // una línea, o una se leyó al revés, y eso se dice en la pantalla de carga.
+  const { data: cuenta } = await sb
+    .from("cuentas_financieras")
+    .select("tipo")
+    .eq("id", cuentaId as string)
+    .single();
+  const aviso = avisoDeCuadre(datos, (cuenta?.tipo as string | undefined) ?? null);
+  if (aviso.length) datos.observaciones.unshift(...aviso);
+
   const omitidas = conImporte.length - sinFecha - nuevas.length;
 
   // Aunque el archivo no fuera idéntico byte a byte, si ninguno de sus
@@ -311,6 +323,49 @@ async function procesarExtracto(
     duplicado: nuevas.length === 0 && omitidas > 0,
     observaciones: datos.observaciones,
   };
+}
+
+/**
+ * Comprueba el extracto contra sí mismo y contra la cuenta a la que se carga.
+ * En una tarjeta el cargo sube el saldo, porque el saldo es deuda; en una
+ * cuenta de ahorros lo baja.
+ */
+export function avisoDeCuadre(
+  datos: {
+    tipo_cuenta: string;
+    saldo_anterior: number | null;
+    saldo_actual: number | null;
+    movimientos: { naturaleza: "DEBITO" | "CREDITO"; monto: number }[];
+  },
+  tipoCuenta: string | null,
+): string[] {
+  const avisos: string[] = [];
+  const esTarjeta = (tipoCuenta ?? datos.tipo_cuenta) === "TARJETA_CREDITO";
+
+  if (tipoCuenta && (datos.tipo_cuenta === "TARJETA_CREDITO") !== (tipoCuenta === "TARJETA_CREDITO")) {
+    avisos.push(
+      `El documento parece de ${datos.tipo_cuenta === "TARJETA_CREDITO" ? "una tarjeta de crédito" : "una cuenta de depósito"} ` +
+        `y se cargó en una cuenta de tipo ${tipoCuenta}. Revisa que sea la cuenta correcta.`,
+    );
+  }
+
+  if (datos.saldo_anterior != null && datos.saldo_actual != null) {
+    const neto = datos.movimientos.reduce(
+      (s, m) => s + ((m.naturaleza === "DEBITO") === esTarjeta ? m.monto : -m.monto),
+      0,
+    );
+    const calculado = Math.round((datos.saldo_anterior + neto) * 100) / 100;
+    const diferencia = Math.round((datos.saldo_actual - calculado) * 100) / 100;
+    if (Math.abs(diferencia) >= 0.01) {
+      avisos.push(
+        `NO CUADRA: saldo anterior ${datos.saldo_anterior.toFixed(2)} más los movimientos leídos da ` +
+          `${calculado.toFixed(2)}, y el extracto dice ${datos.saldo_actual.toFixed(2)} ` +
+          `(diferencia ${diferencia.toFixed(2)}). Falta o sobra una línea, o alguna se leyó al revés.`,
+      );
+    }
+  }
+
+  return avisos;
 }
 
 async function procesarFactura(

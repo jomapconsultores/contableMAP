@@ -129,8 +129,35 @@ done
 # Se borra por carpeta de dia, no por archivo suelto.
 find "$DESTINO" -maxdepth 1 -type d -name '20*' -mtime +$DIAS_RETENCION -exec rm -rf {} + 2>/dev/null
 
-registrar "=== fin: $correctos correctos, $fallidos fallidos, $(du -sh "$CARPETA" | cut -f1) en $CARPETA ==="
-registrar "dias conservados: $(find "$DESTINO" -maxdepth 1 -type d -name '20*' | wc -l) | disco libre: $(df -h /opt | awk 'NR==2{print $4}')"
+tamano_hoy="$(du -sh "$CARPETA" | cut -f1)"
+dias_guardados="$(find "$DESTINO" -maxdepth 1 -type d -name '20*' | wc -l)"
+disco_libre="$(df -h /opt | awk 'NR==2{print $4}')"
+
+registrar "=== fin: $correctos correctos, $fallidos fallidos, $tamano_hoy en $CARPETA ==="
+registrar "dias conservados: $dias_guardados | disco libre: $disco_libre"
+
+# Aviso por Discord. Antes, el exit 1 de aqui abajo se lo comia cron y un
+# respaldo fallido no se lo contaba a nadie: te enterabas el dia que tocara
+# restaurar. La biblioteca no falla si todavia no hay webhook configurado.
+if [ -r /opt/avisos/avisos.sh ]; then
+    . /opt/avisos/avisos.sh
+
+    detalle="Volcados correctos: $correctos
+Fallidos: $fallidos
+Tamano de hoy: $tamano_hoy
+Dias guardados: $dias_guardados (retencion: $DIAS_RETENCION)
+Disco libre: $disco_libre
+Registro: $REGISTRO"
+
+    if [ "$fallidos" -gt 0 ]; then
+        avisar error "Respaldo con $fallidos fallo(s)" "$detalle"
+    elif [ "${RESUMEN_DIARIO:-1}" = "1" ]; then
+        # El parte diario aunque vaya bien: si un dia no llega nada, sabes que el
+        # cron dejo de correr. Un aviso solo-si-falla nunca te diria eso.
+        # Para desactivarlo: RESUMEN_DIARIO=0 en /opt/avisos/config.sh
+        avisar ok "Respaldo correcto" "$detalle"
+    fi
+fi
 
 [ "$fallidos" -gt 0 ] && exit 1
 exit 0

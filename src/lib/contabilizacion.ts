@@ -127,6 +127,11 @@ export async function crearAsiento(
     .single();
 
   if (errAsiento || !asiento) {
+    // La base admite un solo asiento vivo por origen: dos clics seguidos, o
+    // dos pestañas, chocan aquí en vez de duplicar el gasto.
+    if (errAsiento?.code === "23505") {
+      throw new ErrorContable("Ya está contabilizado: su asiento existe.");
+    }
     throw new ErrorContable(`No se pudo crear el asiento: ${errAsiento?.message}`);
   }
 
@@ -156,6 +161,142 @@ export async function crearAsiento(
     await sb.from("asientos").delete().eq("id", asiento.id);
     throw e;
   }
+}
+
+/**
+ * Deja constancia en el documento de origen de que ya tiene asiento. Si no se
+ * puede, el asiento se borra: un asiento que su documento no conoce se
+ * volvería a generar en el siguiente intento, y el gasto contaría dos veces.
+ */
+async function enlazar(
+  sb: SupabaseClient,
+  tabla: string,
+  id: string,
+  valores: Record<string, unknown>,
+  asientoId: string,
+) {
+  const { error } = await sb.from(tabla).update(valores).eq("id", id);
+  if (error) {
+    await sb.from("asientos").delete().eq("id", asientoId);
+    throw new ErrorContable(`No se pudo enlazar el asiento con su documento: ${error.message}`);
+  }
+}
+
+/** Una nota de crédito deshace la factura: mismas cuentas, lados opuestos. */
+function invertir(lineas: Linea[]): Linea[] {
+  return lineas.map((l) => ({ ...l, debe: l.haber, haber: l.debe }));
+}
+
+function sumarDias(fecha: string, dias: number): string {
+  const d = new Date(`${String(fecha).slice(0, 10)}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+
+const distanciaDias = (a: string, b: string) =>
+  Math.abs(new Date(a).getTime() - new Date(b).getTime());
+
+/**
+ * Margen entre la fecha de la factura y la del cargo en el extracto: la
+ * tarjeta suele asentar el consumo uno o varios días después.
+ */
+const PAGO_ANTES = 3;
+const PAGO_DESPUES = 10;
+
+interface Pago {
+  id: string;
+  cuenta_id: string;
+  fecha: string;
+  asiento_id: string | null;
+}
+
+/**
+ * El cargo del extracto que paga una compra: mismo importe, cargo, fecha
+ * cercana y sin compra asignada. Si la compra dice con qué cuenta se pagó, se
+ * busca solo en ella y gana el más cercano en fecha; si no lo dice, solo vale
+ * un candidato único, porque un mismo importe se repite entre cuentas.
+ */
+async function pagoDeCompra(
+  sb: SupabaseClient,
+  entidadId: string,
+  compra: { fecha: string; total: number; cuenta_financiera_id: string | null },
+): Promise<Pago | null> {
+  let q = sb
+    .from("movimientos_extracto")
+    .select("id, cuenta_id, fecha, asiento_id")
+    .eq("entidad_id", entidadId)
+    .eq("naturaleza", "DEBITO")
+    .eq("monto", c(Number(compra.total)))
+    .is("compra_id", null)
+    .gte("fecha", sumarDias(compra.fecha, -PAGO_ANTES))
+    .lte("fecha", sumarDias(compra.fecha, PAGO_DESPUES));
+  if (compra.cuenta_financiera_id) q = q.eq("cuenta_id", compra.cuenta_financiera_id);
+
+  const { data, error } = await q;
+  if (error) throw new ErrorContable(`No se pudo buscar el pago en los extractos: ${error.message}`);
+  const candidatos = (data ?? []) as Pago[];
+  if (candidatos.length === 0) return null;
+  if (!compra.cuenta_financiera_id && candidatos.length > 1) return null;
+
+  return candidatos.sort(
+    (a, b) => distanciaDias(a.fecha, compra.fecha) - distanciaDias(b.fecha, compra.fecha),
+  )[0];
+}
+
+/**
+ * La compra contabilizada que un cargo del extracto paga: la ya asignada al
+ * movimiento o, si no hay, la de mismo importe y fecha cercana que se pagó
+ * con esta cuenta o contra Proveedores, y que todavía no tiene su pago.
+ */
+async function compraDelPago(
+  sb: SupabaseClient,
+  entidadId: string,
+  mov: { id: string; compra_id: string | null; cuenta_id: string; fecha: string; monto: number },
+): Promise<{ id: string; asiento_id: string; cuenta_financiera_id: string | null } | null> {
+  let q = sb
+    .from("compras")
+    .select("id, asiento_id, cuenta_financiera_id, fecha")
+    .eq("entidad_id", entidadId)
+    .not("asiento_id", "is", null)
+    .neq("tipo_comprobante", "NOTA_CREDITO");
+  q = mov.compra_id
+    ? q.eq("id", mov.compra_id)
+    : q
+        .eq("a_credito", false)
+        .eq("total", c(Number(mov.monto)))
+        .gte("fecha", sumarDias(mov.fecha, -PAGO_DESPUES))
+        .lte("fecha", sumarDias(mov.fecha, PAGO_ANTES))
+        .or(`cuenta_financiera_id.eq.${mov.cuenta_id},cuenta_financiera_id.is.null`);
+
+  const { data, error } = await q;
+  if (error) throw new ErrorContable(`No se pudo buscar la compra del pago: ${error.message}`);
+  let candidatas = (data ?? []) as {
+    id: string;
+    asiento_id: string;
+    cuenta_financiera_id: string | null;
+    fecha: string;
+  }[];
+  if (candidatas.length === 0) return null;
+  if (mov.compra_id) return candidatas[0];
+
+  // Fuera las que ya tienen su pago.
+  const { data: pagadas, error: errPagadas } = await sb
+    .from("movimientos_extracto")
+    .select("compra_id")
+    .in("compra_id", candidatas.map((x) => x.id))
+    .neq("id", mov.id);
+  if (errPagadas) throw new ErrorContable(`No se pudo buscar la compra del pago: ${errPagadas.message}`);
+  const conPago = new Set((pagadas ?? []).map((x) => x.compra_id as string));
+  candidatas = candidatas.filter((x) => !conPago.has(x.id));
+
+  // La de esta misma cuenta gana; contra Proveedores solo vale si es única.
+  const propias = candidatas.filter((x) => x.cuenta_financiera_id === mov.cuenta_id);
+  if (propias.length > 0) {
+    return propias.sort(
+      (a, b) => distanciaDias(a.fecha, mov.fecha) - distanciaDias(b.fecha, mov.fecha),
+    )[0];
+  }
+  return candidatas.length === 1 ? candidatas[0] : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +354,7 @@ export async function contabilizarCompra(
   const cat = unaFila<{ nombre: string; plan_cuentas?: unknown }>(compra.categorias_gasto);
   const cuentaGasto =
     unaFila<{ codigo: string }>(cat?.plan_cuentas)?.codigo ?? CUENTAS.GASTO_SIN_CLASIFICAR;
+  const nota = compra.tipo_comprobante === "NOTA_CREDITO";
 
   const base = c(
     Number(compra.base_0) + Number(compra.base_5) + Number(compra.base_8) +
@@ -242,8 +384,33 @@ export async function contabilizarCompra(
     });
   }
 
+  // El mismo pago puede llegar también en el extracto de la tarjeta o del
+  // banco. Si ya está cargado, la compra se asienta contra esa cuenta y el
+  // movimiento queda como su pago: un solo gasto, con su IVA.
+  const pago =
+    compra.a_credito || nota
+      ? null
+      : await pagoDeCompra(sb, entidadId, {
+          fecha: compra.fecha,
+          total,
+          cuenta_financiera_id: compra.cuenta_financiera_id,
+        });
+
+  if (pago?.asiento_id) {
+    // El movimiento ya entró como gasto sin desglose: ese asiento cede su
+    // lugar al de la compra, que lleva el IVA. En un mes cerrado la base no
+    // deja borrarlo, y es mejor detenerse que duplicar el gasto.
+    const { error: errPrevio } = await sb.from("asientos").delete().eq("id", pago.asiento_id);
+    if (errPrevio) {
+      throw new ErrorContable(
+        `El pago de esta compra ya está contabilizado desde el extracto y no se puede rehacer: ${errPrevio.message}`,
+      );
+    }
+  }
+
   // Contrapartida: crédito del proveedor o salida efectiva de dinero.
-  if (compra.a_credito || !compra.cuenta_financiera_id) {
+  const cuentaPago = pago?.cuenta_id ?? (compra.a_credito ? null : compra.cuenta_financiera_id);
+  if (!cuentaPago) {
     lineas.push({
       cuentaCodigo: CUENTAS.PROVEEDORES,
       detalle: `${compra.nombre_proveedor} · ${compra.numero}`,
@@ -251,10 +418,10 @@ export async function contabilizarCompra(
       haber: total,
     });
   } else {
-    const fin = await cuentaDeFinanciera(sb, compra.cuenta_financiera_id);
+    const fin = await cuentaDeFinanciera(sb, cuentaPago);
     lineas.push({
       cuentaCodigo: fin.codigo,
-      detalle: `Pago ${fin.nombre}`,
+      detalle: `${nota ? "Devolución" : "Pago"} ${fin.nombre}`,
       haber: total,
     });
   }
@@ -264,22 +431,30 @@ export async function contabilizarCompra(
     entidadId,
     {
       fecha: compra.fecha,
-      glosa: `Compra ${compra.numero} · ${compra.nombre_proveedor}`,
-      tipo: "EGRESO",
+      glosa: `${nota ? "Nota de crédito" : "Compra"} ${compra.numero} · ${compra.nombre_proveedor}`,
+      tipo: nota ? "INGRESO" : "EGRESO",
       origen: "COMPRA",
       origenId: compraId,
       confianzaIA: compra.confianza_ia,
     },
-    lineas,
+    nota ? invertir(lineas) : lineas,
   );
 
-  await sb
-    .from("compras")
-    .update({ asiento_id: asientoId, estado: "CONTABILIZADA" })
-    .eq("id", compraId);
+  await enlazar(sb, "compras", compraId, { asiento_id: asientoId, estado: "CONTABILIZADA" }, asientoId);
 
-  // Una compra a crédito genera automáticamente la cuenta por pagar.
-  if (compra.a_credito) {
+  if (pago) {
+    await enlazar(
+      sb,
+      "movimientos_extracto",
+      pago.id,
+      { compra_id: compraId, asiento_id: asientoId, conciliado: true },
+      asientoId,
+    );
+  }
+
+  // Una compra a crédito genera automáticamente la cuenta por pagar. La nota
+  // de crédito no: rebaja una que ya existe, y se aplica como abono.
+  if (compra.a_credito && !nota) {
     await sb.from("cartera").insert({
       entidad_id: entidadId,
       clase: "CXP",
@@ -306,8 +481,8 @@ export async function contabilizarCompra(
       mes: fecha.getUTCMonth() + 1,
       fecha: compra.fecha,
       tipo: "ADQUISICIONES",
-      concepto: `IVA en compra ${compra.numero}`,
-      monto: iva,
+      concepto: `IVA en ${nota ? "nota de crédito" : "compra"} ${compra.numero}`,
+      monto: nota ? -iva : iva,
       referencia_id: compraId,
     });
   }
@@ -334,6 +509,7 @@ export async function contabilizarVenta(
 
   const cuentaIngreso =
     unaFila<{ codigo: string }>(venta.plan_cuentas)?.codigo ?? CUENTAS.INGRESO_SERVICIOS;
+  const nota = venta.tipo_comprobante === "NOTA_CREDITO";
 
   const base = c(
     Number(venta.base_0) + Number(venta.base_5) + Number(venta.base_8) +
@@ -372,20 +548,17 @@ export async function contabilizarVenta(
     entidadId,
     {
       fecha: venta.fecha,
-      glosa: `Venta ${venta.numero} · ${venta.razon_social_cliente}`,
-      tipo: "INGRESO",
+      glosa: `${nota ? "Nota de crédito" : "Venta"} ${venta.numero} · ${venta.razon_social_cliente}`,
+      tipo: nota ? "EGRESO" : "INGRESO",
       origen: "VENTA",
       origenId: ventaId,
     },
-    lineas,
+    nota ? invertir(lineas) : lineas,
   );
 
-  await sb
-    .from("ventas")
-    .update({ asiento_id: asientoId, estado: "CONTABILIZADA" })
-    .eq("id", ventaId);
+  await enlazar(sb, "ventas", ventaId, { asiento_id: asientoId, estado: "CONTABILIZADA" }, asientoId);
 
-  if (venta.a_credito) {
+  if (venta.a_credito && !nota) {
     await sb.from("cartera").insert({
       entidad_id: entidadId,
       clase: "CXC",
@@ -426,10 +599,27 @@ export async function contabilizarMovimiento(
   }
 
   const cat = unaFila<{ nombre: string; plan_cuentas?: unknown }>(mov.categorias_gasto);
-  const cuentaCategoria =
-    unaFila<{ codigo: string }>(cat?.plan_cuentas)?.codigo ?? CUENTAS.GASTO_SIN_CLASIFICAR;
   const fin = await cuentaDeFinanciera(sb, mov.cuenta_id);
   const monto = c(Number(mov.monto));
+
+  // Si el cargo es el pago de una compra ya registrada, el gasto ya está en
+  // el asiento de la compra.
+  const compra = mov.naturaleza === "DEBITO" ? await compraDelPago(sb, entidadId, mov) : null;
+  if (compra && compra.cuenta_financiera_id === mov.cuenta_id) {
+    // La compra se asentó contra esta misma cuenta: el movimiento es ese
+    // asiento, no uno nuevo.
+    const { error: errEnlace } = await sb
+      .from("movimientos_extracto")
+      .update({ compra_id: compra.id, asiento_id: compra.asiento_id, conciliado: true })
+      .eq("id", movimientoId);
+    if (errEnlace) throw new ErrorContable(`No se pudo enlazar el pago con su compra: ${errEnlace.message}`);
+    return compra.asiento_id;
+  }
+
+  // Una compra asentada contra Proveedores se cancela con este pago.
+  const cuentaCategoria = compra
+    ? CUENTAS.PROVEEDORES
+    : (unaFila<{ codigo: string }>(cat?.plan_cuentas)?.codigo ?? CUENTAS.GASTO_SIN_CLASIFICAR);
 
   // DEBITO en la cuenta financiera = sale dinero o crece la deuda de la
   // tarjeta; CREDITO = entra dinero o se abona la tarjeta.
@@ -468,10 +658,13 @@ export async function contabilizarMovimiento(
     lineas,
   );
 
-  await sb
-    .from("movimientos_extracto")
-    .update({ asiento_id: asientoId, conciliado: true })
-    .eq("id", movimientoId);
+  await enlazar(
+    sb,
+    "movimientos_extracto",
+    movimientoId,
+    { asiento_id: asientoId, conciliado: true, ...(compra ? { compra_id: compra.id } : {}) },
+    asientoId,
+  );
 
   return asientoId;
 }
@@ -573,10 +766,7 @@ export async function contabilizarRetencion(
     lineas,
   );
 
-  await sb
-    .from("retenciones")
-    .update({ asiento_id: asientoId, estado: "CONTABILIZADA" })
-    .eq("id", retencionId);
+  await enlazar(sb, "retenciones", retencionId, { asiento_id: asientoId, estado: "CONTABILIZADA" }, asientoId);
 
   // Solo lo que nos retienen a nosotros es crédito a nuestro favor.
   if (recibida) {
@@ -688,7 +878,7 @@ export async function contabilizarCartera(
     lineas,
   );
 
-  await sb.from("cartera").update({ asiento_id: asientoId }).eq("id", carteraId);
+  await enlazar(sb, "cartera", carteraId, { asiento_id: asientoId }, asientoId);
   return asientoId;
 }
 
@@ -770,7 +960,7 @@ export async function contabilizarAbono(
     lineas,
   );
 
-  await sb.from("abonos").update({ asiento_id: asientoId }).eq("id", abonoId);
+  await enlazar(sb, "abonos", abonoId, { asiento_id: asientoId }, asientoId);
   return asientoId;
 }
 
@@ -851,10 +1041,7 @@ export async function contabilizarRolPago(
     lineas,
   );
 
-  await sb
-    .from("roles_pago")
-    .update({ asiento_id: asientoId, estado: "CONTABILIZADO" })
-    .eq("id", rolId);
+  await enlazar(sb, "roles_pago", rolId, { asiento_id: asientoId, estado: "CONTABILIZADO" }, asientoId);
 
   // La retención del empleador es crédito contra el impuesto a la renta anual.
   if (renta > 0) {

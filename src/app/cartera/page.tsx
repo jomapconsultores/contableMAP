@@ -344,8 +344,10 @@ function FormularioDocumento({
 
         <label className="block">
           <span className={etiqueta}>Contrapartida</span>
-          <select name="cuenta_financiera_id" className={campo}>
-            <option value="">Bancos (por defecto)</option>
+          <select name="cuenta_financiera_id" className={campo} required defaultValue="">
+            <option value="" disabled>
+              Elige la cuenta
+            </option>
             {cuentas.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.nombre}
@@ -431,8 +433,10 @@ function FormularioAbono({
 
         <label className="block">
           <span className={etiqueta}>Cuenta</span>
-          <select name="cuenta_financiera_id" className={campo}>
-            <option value="">Bancos (por defecto)</option>
+          <select name="cuenta_financiera_id" className={campo} required defaultValue="">
+            <option value="" disabled>
+              Elige la cuenta
+            </option>
             {cuentas.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.nombre}

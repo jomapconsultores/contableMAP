@@ -83,10 +83,42 @@ Para devolverlos:
 tar xzf INSTANCIA-archivos.tar.gz -C /mnt/HC_Volume_106171631/INSTANCIA/storage
 ```
 
+## Copia fuera del servidor (desde el 28-ago-2026)
+
+`/opt/respaldos/subir-a-dropbox.sh`, cron **a las 4:00**, media hora después del
+respaldo. Sube `bases/` y `kardex/` a Dropbox **cifrados** con `rclone crypt`
+(remoto `respaldos-cifrados:` → `dropbox:09_RESPALDOS/servidor-hetzner`). En Dropbox
+no se leen ni los nombres de los ficheros. Registro en `/var/log/subir-a-dropbox.log`;
+si falla, avisa por Discord.
+
+**Las claves están en `/opt/respaldos/CLAVES-CIFRADO-LEEME.txt` (permisos 600) y hay
+que guardarlas FUERA del servidor.** Sin ellas, lo que hay en Dropbox no se puede
+descifrar — ni siquiera con acceso a la cuenta.
+
+Para restaurar desde otro equipo, con las claves a mano:
+
+```sh
+rclone config create respaldos crypt remote=dropbox:09_RESPALDOS/servidor-hetzner \
+  password="$(rclone obscure 'CLAVE1')" password2="$(rclone obscure 'CLAVE2')"
+rclone copy respaldos:bases/2026-08-27 ./restaurado
+```
+
+Comprobado el 28-ago-2026 de verdad: se bajó `contratacion--postgres.dump` desde
+Dropbox y su **MD5 coincide** con el del servidor; `pg_restore -l` lee sus 837
+entradas. No basta con que la subida no dé error — esa es la lección del guardado
+mudo de la Consola Violeta.
+
+**Dos límites que conviene tener presentes:**
+
+- El script usa `rclone sync`, que refleja el origen en el destino. Por eso **aborta
+  si el origen está vacío**: un respaldo fallido que dejara la carpeta sin nada
+  borraría la copia de Dropbox. Además lleva `--max-delete 60`.
+- La contraseña del cifrado vive en la configuración de rclone del servidor, porque
+  el cron debe poder ejecutarse solo. Protege si alguien entra a **Dropbox**; no
+  protege si alguien entra al **servidor**.
+
 ## Lo que este respaldo NO cubre
 
-- **Copia fuera del servidor.** Todo vive en `/opt/respaldos`, en el disco del
-  sistema. Protege de un borrado accidental o una migración mal hecha, no de la
-  pérdida del servidor. Conviene una copia semanal a otro sitio.
 - Nota: las bases están en el disco del sistema y los archivos de los buckets en el
-  volumen `/dev/sdb`, pero **los respaldos de ambos van al disco del sistema**.
+  volumen `/dev/sdb`, pero **los respaldos locales de ambos van al disco del sistema**.
+  La copia de Dropbox sí queda fuera.

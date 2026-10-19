@@ -1,0 +1,14 @@
+# Configuracion de los avisos. Copiar a /opt/avisos/config.sh y rellenar.
+#
+# El webhook se crea en Discord: Ajustes del canal > Integraciones > Webhooks >
+# Nuevo webhook > Copiar URL. Queda algo asi:
+#
+#     https://discord.com/api/webhooks/123456789/AbCdEf...
+#
+# Ese enlace es una credencial: quien lo tenga puede escribir en el canal. Por eso
+# el archivo va con permisos 600 y NO se guarda en Dropbox.
+
+WEBHOOK_DISCORD=""
+
+# Nombre con el que se firman los avisos (opcional).
+SERVIDOR_NOMBRE="ubuntu-4gb-nbg1-1"

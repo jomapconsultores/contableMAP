@@ -58,6 +58,21 @@ export async function POST(request: Request) {
 
     const { sb, entidadId } = await contexto();
 
+    // La pantalla elige la cuenta financiera; el documento guarda su cuenta
+    // contable, que es la contrapartida del asiento. Se aceptan las dos.
+    let cuentaContable = b.cuenta_id ? String(b.cuenta_id) : null;
+    if (!cuentaContable && b.cuenta_financiera_id) {
+      const { data: fin } = await sb
+        .from("cuentas_financieras")
+        .select("cuenta_id")
+        .eq("id", String(b.cuenta_financiera_id))
+        .maybeSingle();
+      cuentaContable = (fin?.cuenta_id as string | null) ?? null;
+    }
+    if (b.contabilizar !== false && !cuentaContable) {
+      throw new ErrorPeticion("Indica la cuenta contra la que nace el documento.");
+    }
+
     const { data, error } = await sb
       .from("cartera")
       .insert({
@@ -71,7 +86,7 @@ export async function POST(request: Request) {
         fecha_vencimiento: vencimiento,
         monto_original: monto,
         tasa_interes: b.tasa_interes ? Number(b.tasa_interes) : 0,
-        cuenta_id: b.cuenta_id ? String(b.cuenta_id) : null,
+        cuenta_id: cuentaContable,
         notas: b.notas ? String(b.notas) : null,
       })
       .select("id, clase, saldo")
@@ -111,6 +126,11 @@ export async function PUT(request: Request) {
       throw new ErrorPeticion("El monto del abono debe ser mayor que cero.");
     }
     if (!fecha) throw new ErrorPeticion("Indica la fecha del abono.");
+    // Se pide antes de grabar: el abono rebaja el saldo de la cartera en
+    // cuanto existe, y sin cuenta no hay asiento que lo acompañe.
+    if (!b.cuenta_financiera_id) {
+      throw new ErrorPeticion("Indica la cuenta por la que entró o salió el dinero.");
+    }
 
     const { sb, entidadId } = await contexto();
 
@@ -136,7 +156,7 @@ export async function PUT(request: Request) {
         fecha,
         monto,
         interes: b.interes ? Number(b.interes) : 0,
-        cuenta_financiera_id: b.cuenta_financiera_id ? String(b.cuenta_financiera_id) : null,
+        cuenta_financiera_id: String(b.cuenta_financiera_id),
         forma_pago: b.forma_pago ? String(b.forma_pago) : null,
         referencia: b.referencia ? String(b.referencia) : null,
       })
@@ -145,7 +165,16 @@ export async function PUT(request: Request) {
 
     if (error) throw new ErrorPeticion(error.message, 500);
 
-    const asientoId = await contabilizarAbono(sb, entidadId, data.id);
+    // Un abono sin asiento descuadra la cartera contra el mayor: si no se
+    // puede contabilizar, se retira y el saldo del documento vuelve a ser el
+    // que era.
+    let asientoId: string;
+    try {
+      asientoId = await contabilizarAbono(sb, entidadId, data.id);
+    } catch (e) {
+      await sb.from("abonos").delete().eq("id", data.id);
+      throw e;
+    }
 
     const { data: actualizado } = await sb
       .from("cartera")

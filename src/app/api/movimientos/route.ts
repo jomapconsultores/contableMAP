@@ -87,12 +87,33 @@ export async function GET(request: Request) {
       return count ?? 0;
     };
 
-    const [filas, montos, todos, sinClasificar, revisar, sinContabilizar] = await Promise.all([
+    // PostgREST entrega como mucho 1.000 filas por consulta, así que los
+    // totales se suman por tramos: un solo .limit(20000) se quedaba en las
+    // primeras mil y la cifra salía corta sin avisar.
+    const sumarMontos = async () => {
+      const TRAMO = 1000;
+      let debitos = 0;
+      let creditos = 0;
+      for (let desde = 0; ; desde += TRAMO) {
+        const { data, error } = await filtrar(seleccionar("id, naturaleza, monto"), estado)
+          .order("id", { ascending: true })
+          .range(desde, desde + TRAMO - 1);
+        if (error) throw new ErrorPeticion(error.message, 500);
+        for (const m of data ?? []) {
+          if (m.naturaleza === "DEBITO") debitos += Number(m.monto);
+          else creditos += Number(m.monto);
+        }
+        if (!data || data.length < TRAMO) break;
+      }
+      return { debitos, creditos };
+    };
+
+    const [filas, { debitos, creditos }, todos, sinClasificar, revisar, sinContabilizar] = await Promise.all([
       filtrar(seleccionar(COLUMNAS, { count: "exact" }), estado)
         .order("fecha", { ascending: false })
         .order("created_at", { ascending: false })
         .range(desdeFila, desdeFila + porPagina - 1),
-      filtrar(seleccionar("naturaleza, monto"), estado).limit(20000),
+      sumarMontos(),
       contar(null),
       contar("sin_clasificar"),
       contar("revisar"),
@@ -100,13 +121,6 @@ export async function GET(request: Request) {
     ]);
 
     if (filas.error) throw new ErrorPeticion(filas.error.message, 500);
-
-    let debitos = 0;
-    let creditos = 0;
-    for (const m of montos.data ?? []) {
-      if (m.naturaleza === "DEBITO") debitos += Number(m.monto);
-      else creditos += Number(m.monto);
-    }
 
     return {
       filas: filas.data,
@@ -143,35 +157,58 @@ async function recategorizar(
 ) {
   const { data: previo, error: errPrevio } = await sb
     .from("movimientos_extracto")
-    .select("asiento_id, categorias_gasto(cuenta_id)")
+    .select("asiento_id, compra_id, cuentas_financieras(cuenta_id)")
     .eq("id", id)
     .single();
   if (errPrevio || !previo) throw new ErrorPeticion("Movimiento no encontrado.", 404);
 
   if (previo.asiento_id) {
-    // El embebido llega como objeto o como arreglo según cómo se infiera la
-    // relación; se acepta cualquiera de las dos formas.
-    const cat = [previo.categorias_gasto].flat()[0] as { cuenta_id: string | null } | undefined;
-    const cuentaVieja = cat?.cuenta_id;
+    // El pago de una factura comparte el asiento de la compra: su gasto se
+    // corrige en la compra, que es donde está el desglose de IVA.
+    if (previo.compra_id) {
+      throw new ErrorPeticion(
+        "Este movimiento es el pago de una compra registrada: cambia la categoría en la compra.",
+      );
+    }
     const { data: nueva } = await sb
       .from("categorias_gasto")
       .select("cuenta_id")
       .eq("id", categoriaId)
       .single();
-
-    if (!cuentaVieja || !nueva?.cuenta_id) {
+    if (!nueva?.cuenta_id) {
       throw new ErrorPeticion(
-        "El movimiento ya está contabilizado y una de las dos categorías no tiene cuenta contable.",
+        "El movimiento ya está contabilizado y la categoría nueva no tiene cuenta contable.",
       );
     }
-    if (cuentaVieja !== nueva.cuenta_id) {
-      const { error: errLinea } = await sb
-        .from("asiento_lineas")
-        .update({ cuenta_id: nueva.cuenta_id })
-        .eq("asiento_id", previo.asiento_id)
-        .eq("cuenta_id", cuentaVieja);
-      if (errLinea) throw new ErrorPeticion(errLinea.message, 500);
+
+    // El asiento de un movimiento tiene dos líneas: la de su cuenta financiera
+    // y la de la categoría. Se corrige la que no es la financiera, sin
+    // suponer cuál era la cuenta de la categoría vieja: si esa categoría se
+    // movió de cuenta después de contabilizar, buscarla por ella no
+    // encontraba nada y el asiento se quedaba como estaba, sin avisar.
+    // El embebido llega como objeto o como arreglo según cómo se infiera la
+    // relación; se acepta cualquiera de las dos formas.
+    const fin = [previo.cuentas_financieras].flat()[0] as { cuenta_id: string | null } | undefined;
+    if (!fin?.cuenta_id) {
+      throw new ErrorPeticion("La cuenta financiera del movimiento no tiene cuenta contable.", 500);
     }
+    const { data: lineas, error: errLineas } = await sb
+      .from("asiento_lineas")
+      .select("id")
+      .eq("asiento_id", previo.asiento_id)
+      .neq("cuenta_id", fin.cuenta_id);
+    if (errLineas) throw new ErrorPeticion(errLineas.message, 500);
+    if (lineas?.length !== 1) {
+      throw new ErrorPeticion(
+        `El asiento del movimiento no tiene la forma esperada (${lineas?.length ?? 0} líneas de contrapartida).`,
+        500,
+      );
+    }
+    const { error: errLinea } = await sb
+      .from("asiento_lineas")
+      .update({ cuenta_id: nueva.cuenta_id })
+      .eq("id", lineas[0].id);
+    if (errLinea) throw new ErrorPeticion(errLinea.message, 500);
   }
 
   const { data: mov, error } = await sb
@@ -234,7 +271,7 @@ export async function POST(request: Request) {
     if (accion === "clasificar") {
       const { data: pendientes, error } = await sb
         .from("movimientos_extracto")
-        .select("id, fecha, descripcion, comercio, monto")
+        .select("id, fecha, descripcion, comercio, monto, naturaleza")
         .eq("entidad_id", entidadId)
         .is("categoria_id", null)
         .limit(500);
@@ -251,6 +288,7 @@ export async function POST(request: Request) {
           comercio: m.comercio as string | null,
           monto: Number(m.monto),
           fecha: m.fecha as string,
+          naturaleza: m.naturaleza as "DEBITO" | "CREDITO",
         })),
       );
 

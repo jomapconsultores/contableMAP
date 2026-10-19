@@ -19,6 +19,12 @@ export interface ItemAClasificar {
   actividad?: string | null;
   monto: number;
   fecha: string;
+  /**
+   * Del lado de la cuenta financiera: DEBITO sale dinero o crece la deuda de
+   * la tarjeta; CREDITO entra dinero o se abona. Sin esto un reembolso o un
+   * ingreso se clasificaban como si fueran un gasto más del mismo comercio.
+   */
+  naturaleza?: "DEBITO" | "CREDITO";
 }
 
 export interface Asignacion {
@@ -166,6 +172,7 @@ export async function clasificarLote(
       .map(
         (m) =>
           `${m.indice}. ${m.fecha} | ${m.descripcion} | USD ${m.monto.toFixed(2)}` +
+          (m.naturaleza ? ` | ${m.naturaleza === "CREDITO" ? "ABONO" : "CARGO"}` : "") +
           (m.ruc ? ` | RUC ${m.ruc}` : "") +
           (m.actividad ? ` | actividad: ${m.actividad}` : ""),
       )
@@ -200,7 +207,13 @@ export async function clasificarLote(
       });
 
       // Aprende solo lo que viene con confianza suficiente y categoría real.
-      if (cat && r && r.confianza >= UMBRAL_APRENDIZAJE && cat.nombre !== "SIN CLASIFICAR") {
+      // Los abonos no enseñan: la clave del mapa es el comercio, sin el sentido
+      // del movimiento, y la devolución de un comercio dejaría su categoría
+      // puesta a todas sus compras.
+      if (
+        cat && r && r.confianza >= UMBRAL_APRENDIZAJE && cat.nombre !== "SIN CLASIFICAR" &&
+        item.naturaleza !== "CREDITO"
+      ) {
         const clave = item.ruc ?? (r.comercio ? normalizarComercio(r.comercio) : null);
         if (clave) {
           nuevasClaves.push({

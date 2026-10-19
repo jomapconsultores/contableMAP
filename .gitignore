@@ -46,3 +46,6 @@ next-env.d.ts
 # volcados de la migración: llevan la contabilidad entera en claro
 deploy/supabase/volcado-*/
 deploy/supabase/.clave-rol-migracion
+
+# cruces de trabajo con RUC y nombres de terceros: no se versionan
+cruce.json

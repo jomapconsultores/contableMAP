@@ -61,16 +61,24 @@ export async function importarNotas(
     .single();
   if (!caja) throw new Error(`No existe la cuenta «${CUENTA_CAJA}».`);
 
-  // Las notas que ya tienen algún movimiento no se vuelven a interpretar.
-  const { data: previas } = await sb
-    .from("movimientos_extracto")
-    .select("referencia")
-    .eq("entidad_id", entidadId)
-    .eq("cuenta_id", caja.id)
-    .like("referencia", "TODO:%");
-  const importadas = new Set(
-    (previas ?? []).map((p) => (p.referencia as string).split(":")[1]),
-  );
+  // Las notas que ya tienen algún movimiento no se vuelven a interpretar. Se
+  // leen por tramos: PostgREST entrega como mucho mil filas, y pasada esa
+  // cifra las notas más viejas se habrían vuelto a importar.
+  const importadas = new Set<string>();
+  const TRAMO = 1000;
+  for (let desde = 0; ; desde += TRAMO) {
+    const { data: previas, error } = await sb
+      .from("movimientos_extracto")
+      .select("referencia")
+      .eq("entidad_id", entidadId)
+      .eq("cuenta_id", caja.id)
+      .like("referencia", "TODO:%")
+      .order("id", { ascending: true })
+      .range(desde, desde + TRAMO - 1);
+    if (error) throw new Error(`No se pudieron leer las notas ya importadas: ${error.message}`);
+    for (const p of previas ?? []) importadas.add((p.referencia as string).split(":")[1]);
+    if (!previas || previas.length < TRAMO) break;
+  }
   const nuevas = notas.filter((n) => !importadas.has(n.id));
 
   const resultado: ResultadoEfectivo = {
